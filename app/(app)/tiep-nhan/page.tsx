@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
 type Order = { id: string; code: number; customer_id: string; received_at: string; odometer: number | null; issue: string; status: string; note: string | null; vehicles: { plate: string; model: string | null } | null; customers: { name: string; phone: string | null } | null };
@@ -85,6 +86,7 @@ export default function OrdersPage() {
               <select className="border rounded-lg px-2 py-1 text-sm" value={o.status} onChange={(e) => setStatus(o.id, e.target.value)}>
                 {STATUS.map((s) => <option key={s}>{s}</option>)}
               </select>
+              <Link href={`/tiep-nhan/${o.id}`} className="text-blue-600 text-sm">Báo giá</Link>
               <button onClick={() => remove(o)} className="text-red-600 text-sm ml-auto">Xóa</button>
             </div>
           </li>
