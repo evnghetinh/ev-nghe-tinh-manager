@@ -11,6 +11,7 @@ const menu = [
   { href: "/khach-hang", label: "Khách hàng" },
   { href: "/xe", label: "Xe" },
   { href: "/phu-tung", label: "Phụ tùng" },
+  { href: "/nhap-hang", label: "Nhập hàng", ownerOnly: true },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
