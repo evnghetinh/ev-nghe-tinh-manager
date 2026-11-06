@@ -7,6 +7,7 @@ import { money, digits } from "@/lib/format";
 
 type Item = { id: string; kind: "part" | "labor"; name: string; qty: number; unit_price: number };
 type Part = { id: string; name: string; code: string | null; sale_price: number; stock: number };
+type Past = { id: string; code: number; received_at: string; odometer: number | null; issue: string; status: string; items: { kind: "part" | "labor"; name: string; qty: number }[] };
 type Order = { code: number; issue: string; status: string; payment_method: string | null; paid_at: string | null; stock_deducted: boolean; vehicles: { plate: string } | null; customers: { name: string; phone: string | null } | null };
 
 export default function QuotePage() {
@@ -20,6 +21,8 @@ export default function QuotePage() {
   const [error, setError] = useState("");
   const [pay, setPay] = useState({ method: "Tiền mặt", date: new Date().toLocaleDateString("sv-SE") });
   const [busy, setBusy] = useState(false);
+  const [past, setPast] = useState<Past[] | null>(null);
+  const [pastError, setPastError] = useState("");
 
   const load = useCallback(async () => {
     const o = await supabase.from("repair_orders").select("code, issue, status, payment_method, paid_at, stock_deducted, vehicles(plate), customers(name, phone)").eq("id", id).single();
@@ -28,6 +31,8 @@ export default function QuotePage() {
     if (o.error) setError(o.error.message); else setOrder(o.data as unknown as Order);
     if (i.data) setItems(i.data as Item[]);
     if (p.data) setParts(p.data as Part[]);
+    const h = await supabase.rpc("lich_su_xe", { p_order: id });
+    if (h.error) { setPastError(h.error.message); setPast([]); } else { setPastError(""); setPast(h.data as Past[]); }
   }, [id]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
@@ -137,6 +142,35 @@ export default function QuotePage() {
           <button onClick={complete} disabled={busy || items.length === 0} className="bg-green-700 text-white rounded-lg px-4 py-2 disabled:opacity-50">Hoàn thành và thu tiền</button>
         </div>
       )}
+
+      <section className="bg-white rounded-xl shadow p-4 space-y-3">
+        <h2 className="font-bold">Lịch sử sửa chữa của xe này</h2>
+        {past === null ? <p className="text-sm text-slate-500">Đang tải...</p> : (
+          <>
+            <p className="text-sm text-slate-600">Tổng số lượt xe đã vào xưởng: <b>{past.length + 1}</b>{past.length === 0 ? " (đây là lần đầu)" : ""}</p>
+            {pastError && <p className="text-sm text-red-600">Không tải được lịch sử: {pastError}</p>}
+            <ul className="space-y-2">
+              {past.map((h) => {
+                const ps = h.items.filter((x) => x.kind === "part");
+                const ls = h.items.filter((x) => x.kind === "labor");
+                return (
+                  <li key={h.id}>
+                    <Link href={`/tiep-nhan/${h.id}`} className="block border rounded-lg p-3 hover:bg-slate-50 space-y-1">
+                      <div className="flex justify-between gap-2 flex-wrap">
+                        <span className="font-medium">PT{String(h.code).padStart(4, "0")} · {new Date(h.received_at).toLocaleDateString("vi-VN")}{h.odometer != null ? ` · ${new Intl.NumberFormat("vi-VN").format(h.odometer)} km` : ""}</span>
+                        <span className="text-sm text-slate-500">{h.status}</span>
+                      </div>
+                      <div className="text-sm"><span className="text-slate-500">Khách báo: </span>{h.issue}</div>
+                      <div className="text-sm"><span className="text-slate-500">Phụ tùng đã thay: </span>{ps.length ? ps.map((x) => `${x.name} ×${x.qty}`).join(", ") : "—"}</div>
+                      <div className="text-sm"><span className="text-slate-500">Công đã làm: </span>{ls.length ? ls.map((x) => x.name).join(", ") : "—"}</div>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+      </section>
     </div>
   );
 }

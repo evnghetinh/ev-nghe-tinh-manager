@@ -73,15 +73,17 @@ export default function OrdersPage() {
       <ul className="space-y-2">
         {shown.map((o) => (
           <li key={o.id} className="bg-white rounded-xl shadow p-3 space-y-2">
-            <div className="flex justify-between gap-2">
-              <div className="font-medium">PT{String(o.code).padStart(4, "0")} · {o.vehicles?.plate}</div>
-              <span className={`text-xs px-2 py-1 rounded-full shrink-0 ${color[o.status]}`}>{o.status}</span>
-            </div>
-            <div className="text-sm">{o.issue}</div>
-            <div className="text-sm text-slate-500">
-              {o.customers?.name}{o.customers?.phone ? ` (${o.customers.phone})` : ""} · {new Date(o.received_at).toLocaleString("vi-VN")}
-              {o.odometer != null ? ` · ${o.odometer} km` : ""}{o.note ? ` · ${o.note}` : ""}
-            </div>
+            <Link href={`/tiep-nhan/${o.id}`} className="block space-y-2">
+              <div className="flex justify-between gap-2">
+                <div className="font-medium">PT{String(o.code).padStart(4, "0")} · {o.vehicles?.plate}</div>
+                <span className={`text-xs px-2 py-1 rounded-full shrink-0 ${color[o.status]}`}>{o.status}</span>
+              </div>
+              <div className="text-sm">{o.issue}</div>
+              <div className="text-sm text-slate-500">
+                {o.customers?.name}{o.customers?.phone ? ` (${o.customers.phone})` : ""} · {new Date(o.received_at).toLocaleString("vi-VN")}
+                {o.odometer != null ? ` · ${o.odometer} km` : ""}{o.note ? ` · ${o.note}` : ""}
+              </div>
+            </Link>
             <div className="flex gap-2 items-center">
               <select className="border rounded-lg px-2 py-1 text-sm" value={o.status} onChange={(e) => setStatus(o.id, e.target.value)}>
                 {STATUS.map((s) => <option key={s}>{s}</option>)}
