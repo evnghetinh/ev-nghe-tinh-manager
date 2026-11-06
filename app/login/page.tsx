@@ -23,7 +23,7 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
       <form onSubmit={onSubmit} className="w-full max-w-sm bg-white rounded-xl shadow p-6 space-y-4">
-        <h1 className="text-xl font-bold text-center">⚡ Gara xe điện</h1>
+        <h1 className="text-xl font-bold text-center">⚡ EV Nghệ Tĩnh Auto</h1>
         <p className="text-sm text-center text-slate-500">Đăng nhập để quản lý</p>
         <input type="email" required placeholder="Email" value={email}
           onChange={(e) => setEmail(e.target.value)}

@@ -50,8 +50,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-16 md:pb-0 md:flex">
-      <aside className="hidden md:flex md:flex-col md:w-56 bg-white border-r p-4 gap-1">
-        <div className="font-bold">⚡ Gara xe điện</div>
+      <aside className="hidden md:flex print:!hidden md:flex-col md:w-56 bg-white border-r p-4 gap-1">
+        <div className="font-bold">⚡ EV Nghệ Tĩnh Auto</div>
         <div className="text-xs text-slate-500 mb-4">{roleLabel[role]}</div>
         {items.map((m) => (
           <Link key={m.href} href={m.href}
@@ -63,8 +63,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           Đăng xuất
         </button>
       </aside>
-      <main className="flex-1 p-4 md:p-6 max-w-4xl w-full"><RoleContext.Provider value={role}>{children}</RoleContext.Provider></main>
-      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t flex">
+      <main className="flex-1 p-4 md:p-6 max-w-4xl w-full print:p-0 print:max-w-none"><RoleContext.Provider value={role}>{children}</RoleContext.Provider></main>
+      <nav className="md:hidden print:hidden fixed bottom-0 inset-x-0 bg-white border-t flex">
         {items.map((m) => (
           <Link key={m.href} href={m.href}
             className={`flex-1 text-center py-3 text-sm ${pathname === m.href ? "text-green-700 font-semibold" : "text-slate-600"}`}>

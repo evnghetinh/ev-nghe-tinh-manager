@@ -75,7 +75,10 @@ export default function QuotePage() {
 
   return (
     <div className="space-y-4">
-      <Link href="/tiep-nhan" className="text-sm text-blue-600">← Quay lại danh sách phiếu</Link>
+      <div className="flex justify-between items-center gap-2">
+        <Link href="/tiep-nhan" className="text-sm text-blue-600">← Quay lại danh sách phiếu</Link>
+        <Link href={`/tiep-nhan/${id}/in`} className="bg-blue-600 text-white rounded-lg px-4 py-2 text-sm">In báo giá</Link>
+      </div>
       {order && (
         <div className="bg-white rounded-xl shadow p-4">
           <h1 className="text-xl font-bold">Báo giá PT{String(order.code).padStart(4, "0")} · {order.vehicles?.plate}</h1>
