@@ -2,6 +2,13 @@
 -- Cách dùng: Supabase -> SQL Editor -> New query -> dán toàn bộ file này -> Run
 -- Chạy lại nhiều lần vẫn an toàn (không mất dữ liệu, không trừ kho thêm).
 
+-- CHỐT CHẶN: đã nâng cấp giai đoạn 4 (phân quyền) thì không chạy lại file này
+do $$ begin
+  if to_regclass('public.user_roles') is not null then
+    raise exception 'Đã nâng cấp lên giai đoạn 4, không chạy lại file này. Dùng giai-doan-4.sql.';
+  end if;
+end $$;
+
 alter table public.repair_orders add column if not exists payment_method text check (payment_method in ('Tiền mặt','Chuyển khoản'));
 alter table public.repair_orders add column if not exists paid_at date;
 alter table public.repair_orders add column if not exists stock_deducted boolean not null default false;

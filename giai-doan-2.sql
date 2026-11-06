@@ -2,6 +2,13 @@
 -- Cách dùng: Supabase -> SQL Editor -> New query -> dán toàn bộ file này -> Run
 -- Chạy lại nhiều lần vẫn an toàn (không mất dữ liệu, không báo lỗi).
 
+-- CHỐT CHẶN: đã nâng cấp giai đoạn 4 (phân quyền) thì không chạy lại file này
+do $$ begin
+  if to_regclass('public.user_roles') is not null then
+    raise exception 'Đã nâng cấp lên giai đoạn 4, không chạy lại file này. Dùng giai-doan-4.sql.';
+  end if;
+end $$;
+
 create table if not exists public.parts (
   id uuid primary key default gen_random_uuid(),
   name text not null,

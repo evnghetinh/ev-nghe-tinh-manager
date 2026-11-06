@@ -3,21 +3,28 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { money } from "@/lib/format";
+import { useRole } from "@/lib/role";
 
-type Paid = { paid_at: string; repair_items: { kind: string; qty: number; unit_price: number; cost_price: number }[] };
+type Paid = { paid_at: string; repair_items: { kind: string; qty: number; unit_price: number; repair_item_costs: { cost_price: number } | { cost_price: number }[] | null }[] };
+const costOf = (i: Paid["repair_items"][number]) => {
+  const c = i.repair_item_costs;
+  return (Array.isArray(c) ? c[0]?.cost_price : c?.cost_price) ?? 0;
+};
 type Low = { id: string; name: string; stock: number; min_stock: number };
 
 export default function Dashboard() {
+  const role = useRole();
   const [d, setD] = useState({ open: 0, today: 0, month: 0, profit: 0 });
   const [low, setLow] = useState<Low[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (role !== "chu") return;
     (async () => {
       const today = new Date().toLocaleDateString("sv-SE");
       const first = today.slice(0, 8) + "01";
       const o = await supabase.from("repair_orders").select("*", { count: "exact", head: true }).in("status", ["Chờ xử lý", "Đang sửa"]);
-      const p = await supabase.from("repair_orders").select("paid_at, repair_items(kind, qty, unit_price, cost_price)")
+      const p = await supabase.from("repair_orders").select("paid_at, repair_items(kind, qty, unit_price, repair_item_costs(cost_price))")
         .eq("stock_deducted", true).gte("paid_at", first).lte("paid_at", today);
       const pt = await supabase.from("parts").select("id, name, stock, min_stock").order("stock");
       if (p.error || pt.error) setError((p.error ?? pt.error)!.message);
@@ -26,12 +33,14 @@ export default function Dashboard() {
         const rev = r.repair_items.reduce((s, i) => s + i.qty * i.unit_price, 0);
         m += rev;
         if (r.paid_at === today) t += rev;
-        cost += r.repair_items.filter((i) => i.kind === "part").reduce((s, i) => s + i.qty * i.cost_price, 0);
+        cost += r.repair_items.filter((i) => i.kind === "part").reduce((s, i) => s + i.qty * costOf(i), 0);
       }
       setD({ open: o.count ?? 0, today: t, month: m, profit: m - cost });
       setLow(((pt.data ?? []) as Low[]).filter((x) => x.stock <= x.min_stock));
     })();
-  }, []);
+  }, [role]);
+
+  if (role !== "chu") return <p className="text-slate-500">Bạn không có quyền xem trang này.</p>;
 
   const cards = [
     { label: "Xe đang sửa / chờ xử lý", value: String(d.open), href: "/tiep-nhan" },

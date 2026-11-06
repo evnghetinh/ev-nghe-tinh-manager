@@ -9,6 +9,9 @@ begin
   for t in
     select tablename from pg_tables where schemaname = 'public'
   loop
+    -- Bảng đã phân quyền theo vai trò (giai-doan-4.sql) thì bỏ qua, không mở lại quyền
+    continue when t.tablename = 'user_roles';
+    continue when exists (select 1 from pg_policies where schemaname = 'public' and tablename = t.tablename and policyname like 'vt\_%');
     -- 1. Bật RLS (bắt buộc kiểm tra quyền trước khi đọc/ghi)
     execute format('alter table public.%I enable row level security', t.tablename);
 

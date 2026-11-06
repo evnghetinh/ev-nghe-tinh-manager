@@ -2,11 +2,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { money, digits } from "@/lib/format";
+import { useRole } from "@/lib/role";
 
-type Part = { id: string; name: string; code: string | null; cost_price: number; sale_price: number; stock: number };
+type Part = { id: string; name: string; code: string | null; cost_price?: number; sale_price: number; stock: number };
 const empty = { name: "", code: "", cost_price: "", sale_price: "", stock: "" };
 
 export default function PartsPage() {
+  const isOwner = useRole() === "chu";
   const [list, setList] = useState<Part[]>([]);
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState<string | null>(null);
@@ -15,8 +17,16 @@ export default function PartsPage() {
 
   const load = useCallback(async () => {
     const { data, error } = await supabase.from("parts").select("*").order("name");
-    if (error) setError(error.message); else setList(data as Part[]);
-  }, []);
+    if (error) return setError(error.message);
+    let rows = data as Part[];
+    if (isOwner) {
+      const c = await supabase.from("part_costs").select("part_id, cost_price");
+      if (c.error) return setError(c.error.message);
+      const m = new Map((c.data ?? []).map((x) => [x.part_id as string, Number(x.cost_price)]));
+      rows = rows.map((p) => ({ ...p, cost_price: m.get(p.id) ?? 0 }));
+    }
+    setList(rows);
+  }, [isOwner]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
 
@@ -25,18 +35,22 @@ export default function PartsPage() {
     setError("");
     const row = {
       name: form.name.trim(), code: form.code.trim() || null,
-      cost_price: Number(form.cost_price || 0), sale_price: Number(form.sale_price || 0),
+      sale_price: Number(form.sale_price || 0),
       stock: Number(form.stock || 0),
     };
-    const { error } = editId
-      ? await supabase.from("parts").update(row).eq("id", editId)
-      : await supabase.from("parts").insert(row);
-    if (error) return setError(error.code === "23505" ? "Mã phụ tùng đã tồn tại." : error.message);
+    const res = editId
+      ? await supabase.from("parts").update(row).eq("id", editId).select("id").single()
+      : await supabase.from("parts").insert(row).select("id").single();
+    if (res.error) return setError(res.error.code === "23505" ? "Mã phụ tùng đã tồn tại." : res.error.message);
+    if (isOwner) {
+      const c = await supabase.from("part_costs").upsert({ part_id: res.data.id, cost_price: Number(form.cost_price || 0) });
+      if (c.error) return setError(c.error.message);
+    }
     setForm(empty); setEditId(null); load();
   }
   function edit(p: Part) {
     setEditId(p.id);
-    setForm({ name: p.name, code: p.code ?? "", cost_price: String(p.cost_price), sale_price: String(p.sale_price), stock: String(p.stock) });
+    setForm({ name: p.name, code: p.code ?? "", cost_price: String(p.cost_price ?? 0), sale_price: String(p.sale_price), stock: String(p.stock) });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   async function remove(p: Part) {
@@ -54,7 +68,7 @@ export default function PartsPage() {
       <form onSubmit={save} className="bg-white rounded-xl shadow p-4 grid gap-3 sm:grid-cols-2">
         <input required placeholder="Tên phụ tùng *" className={input} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <input placeholder="Mã phụ tùng" className={input} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
-        <input placeholder="Giá nhập (đ)" inputMode="numeric" className={input} value={form.cost_price} onChange={(e) => setForm({ ...form, cost_price: digits(e.target.value) })} />
+        {isOwner && <input placeholder="Giá nhập (đ)" inputMode="numeric" className={input} value={form.cost_price} onChange={(e) => setForm({ ...form, cost_price: digits(e.target.value) })} />}
         <input placeholder="Giá bán (đ)" inputMode="numeric" className={input} value={form.sale_price} onChange={(e) => setForm({ ...form, sale_price: digits(e.target.value) })} />
         <input placeholder="Số lượng tồn" inputMode="numeric" className={input} value={form.stock} onChange={(e) => setForm({ ...form, stock: digits(e.target.value) })} />
         <div className="flex gap-2">
@@ -71,7 +85,7 @@ export default function PartsPage() {
               <div className="font-medium">{p.name}{p.code ? <span className="text-slate-500 font-normal"> · {p.code}</span> : null}</div>
               <span className={`text-xs px-2 py-1 rounded-full shrink-0 ${p.stock > 0 ? "bg-green-100 text-green-800" : "bg-red-100 text-red-700"}`}>Tồn: {p.stock}</span>
             </div>
-            <div className="text-sm text-slate-500">Nhập {money(p.cost_price)} · Bán {money(p.sale_price)}</div>
+            <div className="text-sm text-slate-500">{isOwner ? `Nhập ${money(p.cost_price ?? 0)} · ` : ""}Bán {money(p.sale_price)}</div>
             <div className="flex gap-4 text-sm">
               <button onClick={() => edit(p)} className="text-blue-600">Sửa</button>
               <button onClick={() => remove(p)} className="text-red-600">Xóa</button>
