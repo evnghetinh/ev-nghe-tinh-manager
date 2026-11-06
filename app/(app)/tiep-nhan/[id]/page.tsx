@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { money, digits } from "@/lib/format";
+import Photos from "./photos";
 
 type Item = { id: string; kind: "part" | "labor"; name: string; qty: number; unit_price: number };
 type Part = { id: string; name: string; code: string | null; sale_price: number; stock: number };
@@ -142,6 +143,8 @@ export default function QuotePage() {
           <button onClick={complete} disabled={busy || items.length === 0} className="bg-green-700 text-white rounded-lg px-4 py-2 disabled:opacity-50">Hoàn thành và thu tiền</button>
         </div>
       )}
+
+      <Photos orderId={id} />
 
       <section className="bg-white rounded-xl shadow p-4 space-y-3">
         <h2 className="font-bold">Lịch sử sửa chữa của xe này</h2>
