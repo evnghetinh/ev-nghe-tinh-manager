@@ -20,8 +20,9 @@ type Mapping = Record<Field, number>; // -1 = không dùng
 type Raw = { headers: string[]; body: unknown[][] };
 type Row = { id: number; name: string; code: string; qty: string; cost: string; sale: string };
 type Part = { id: string; name: string; code: string | null };
-type Batch = { id: string; imported_on: string; supplier: string | null; note: string | null; item_count: number; total: number; created_by_name: string | null };
-type BatchItem = { id: string; name: string; code: string | null; qty: number; cost_price: number; sale_price: number | null; is_new: boolean };
+type Batch = { id: string; imported_on: string; supplier: string | null; note: string | null; item_count: number; total: number; created_by_name: string | null; da_huy: boolean; huy_ly_do: string | null; huy_boi: string | null; huy_luc: string | null };
+type Log = { id: string; action: string; noi_dung: string | null; created_by_name: string | null; created_at: string };
+type BatchItem = { id: string; part_id: string | null; name: string; code: string | null; qty: number; cost_price: number; sale_price: number | null; is_new: boolean };
 
 function parseNum(v: string): number | null {
   const s = v.replace(/[^\d.,-]/g, "");
@@ -70,6 +71,10 @@ export default function ImportPage() {
   const [history, setHistory] = useState<Batch[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   const [openItems, setOpenItems] = useState<BatchItem[]>([]);
+  const [openLogs, setOpenLogs] = useState<Log[]>([]);
+  const [hideable, setHideable] = useState<Set<string>>(new Set());
+  const [editing, setEditing] = useState<{ id: string; supplier: string; date: string; note: string } | null>(null);
+  const [cancelling, setCancelling] = useState<{ id: string; reason: string; redo: boolean } | null>(null);
 
   const loadAll = useCallback(async () => {
     const [p, h] = await Promise.all([
@@ -83,14 +88,24 @@ export default function ImportPage() {
   }, []);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (isOwner) loadAll(); }, [isOwner, loadAll]);
+  const loadDetail = useCallback(async (id: string) => {
+    const [it, lg, hd] = await Promise.all([
+      supabase.from("stock_import_items").select("*").eq("import_id", id).order("name"),
+      supabase.from("stock_import_logs").select("id, action, noi_dung, created_by_name, created_at").eq("import_id", id).order("created_at", { ascending: false }),
+      supabase.rpc("phu_tung_an_duoc", { p_import: id }),
+    ]);
+    if (it.error) return setError(it.error.message);
+    setOpenItems(it.data as BatchItem[]); setOpenLogs((lg.data ?? []) as Log[]);
+    setHideable(new Set((hd.data ?? []) as string[]));
+    setOpen(id);
+  }, []);
   // Mở sẵn lần nhập khi đi từ sổ kho sang (?mo=<id>)
   useEffect(() => {
     const mo = new URLSearchParams(window.location.search).get("mo");
     if (!isOwner || !mo) return;
-    supabase.from("stock_import_items").select("*").eq("import_id", mo).order("name").then(({ data }) => {
-      if (data) { setOpenItems(data as BatchItem[]); setOpen(mo); }
-    });
-  }, [isOwner]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadDetail(mo);
+  }, [isOwner, loadDetail]);
 
   function buildRows(r: Raw, m: Mapping): Row[] {
     const g = (row: unknown[], k: Field) => (m[k] >= 0 ? cellText(row[m[k]]) : "");
@@ -182,9 +197,55 @@ export default function ImportPage() {
 
   async function toggle(b: Batch) {
     if (open === b.id) return setOpen(null);
-    const { data, error } = await supabase.from("stock_import_items").select("*").eq("import_id", b.id).order("name");
+    setEditing(null); setCancelling(null);
+    await loadDetail(b.id);
+  }
+
+  async function saveEdit() {
+    if (!editing) return;
+    setError(""); setOk(""); setBusy(true);
+    const { error } = await supabase.rpc("sua_lan_nhap", { p_id: editing.id, p_supplier: editing.supplier, p_date: editing.date, p_note: editing.note });
+    setBusy(false);
     if (error) return setError(error.message);
-    setOpenItems(data as BatchItem[]); setOpen(b.id);
+    setOk("Đã lưu thông tin lần nhập (kho không đổi)."); setEditing(null);
+    await loadAll(); await loadDetail(editing.id);
+  }
+
+  async function doCancel() {
+    if (!cancelling) return;
+    setError(""); setOk("");
+    if (!cancelling.reason.trim()) return setError("Bắt buộc nhập lý do hủy.");
+    const b = history.find((x) => x.id === cancelling.id);
+    if (!b) return;
+    if (!confirm(`Hủy phiếu nhập ngày ${new Date(b.imported_on).toLocaleDateString("vi-VN")} (${b.item_count} món)?\nTồn kho sẽ bị trừ lại đúng số lượng đã nhập. Không hoàn tác được.`)) return;
+    setBusy(true);
+    const { data, error } = await supabase.rpc("huy_lan_nhap", { p_id: b.id, p_ly_do: cancelling.reason });
+    setBusy(false);
+    if (error) return setError(error.message);
+    const giu = (data as { giu_gia?: string } | null)?.giu_gia;
+    const warn = giu ? ` Chưa khôi phục được giá nhập của: ${giu} (lần nhập cũ không lưu giá trước đó) — kiểm tra lại ở Phụ tùng.` : "";
+    const redo = cancelling.redo;
+    setCancelling(null);
+    if (redo) {
+      setSupplier(b.supplier ?? ""); setNote(b.note ?? ""); setDate(b.imported_on);
+      setRaw({ headers: [], body: [] }); setFileName("");
+      setRows(openItems.map((it, i) => ({ id: i, name: it.name, code: it.code ?? "", qty: String(it.qty), cost: String(it.cost_price), sale: it.sale_price === null ? "" : String(it.sale_price) })));
+      setOpen(null);
+      setOk("Đã hủy phiếu cũ. Sửa lại dữ liệu bên dưới rồi bấm Xác nhận nhập hàng." + warn);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      await loadAll();
+    } else {
+      setOk("Đã hủy phiếu nhập." + warn);
+      await loadAll(); await loadDetail(b.id);
+    }
+  }
+
+  async function hidePart(partId: string | null) {
+    if (!partId || !open) return;
+    if (!confirm("Ẩn phụ tùng này khỏi danh sách chọn? Lịch sử vẫn được giữ.")) return;
+    const { error } = await supabase.rpc("an_phu_tung", { p_part: partId });
+    if (error) return setError(error.message);
+    setOk("Đã ẩn phụ tùng."); loadDetail(open);
   }
 
   if (!isOwner) return <p className="text-slate-500">Mục này chỉ dành cho Chủ xưởng.</p>;
@@ -217,7 +278,7 @@ export default function ImportPage() {
 
       {raw && (
         <>
-          <div className="bg-white rounded-xl shadow p-4 space-y-2">
+          {raw.headers.length > 0 && <div className="bg-white rounded-xl shadow p-4 space-y-2">
             <div className="font-medium">1. Kiểm tra cột</div>
             <div className="grid gap-2 grid-cols-2 sm:grid-cols-3">
               {FIELDS.map((f) => (
@@ -230,10 +291,10 @@ export default function ImportPage() {
                 </label>
               ))}
             </div>
-          </div>
+          </div>}
 
           <div className="space-y-2">
-            <div className="font-medium">2. Xem trước ({rows.length} dòng{errCount ? `, ${errCount} dòng cần sửa` : ""})</div>
+            <div className="font-medium">{raw.headers.length > 0 ? "2. " : ""}Xem trước ({rows.length} dòng{errCount ? `, ${errCount} dòng cần sửa` : ""})</div>
             {rows.map((r, i) => {
               const c = checks[i];
               return (
@@ -275,21 +336,67 @@ export default function ImportPage() {
           <div key={b.id} className="bg-white rounded-xl shadow p-3 space-y-2">
             <button onClick={() => toggle(b)} className="w-full text-left flex justify-between gap-2">
               <span>
-                <span className="font-medium">{new Date(b.imported_on).toLocaleDateString("vi-VN")}</span>
-                <span className="text-slate-500"> · {b.supplier || "Chưa ghi nhà cung cấp"}</span>
+                <span className={b.da_huy ? "line-through text-slate-500" : ""}>
+                  <span className="font-medium">{new Date(b.imported_on).toLocaleDateString("vi-VN")}</span>
+                  <span className="text-slate-500"> · {b.supplier || "Chưa ghi nhà cung cấp"}</span>
+                </span>
                 <span className="block text-xs text-slate-500">{b.item_count} món{b.note ? ` · ${b.note}` : ""}{b.created_by_name ? ` · ${b.created_by_name}` : ""}</span>
+                {b.da_huy && <span className="block text-xs text-red-600">Đã hủy · {b.huy_boi ?? "Không rõ"} · {b.huy_luc ? new Date(b.huy_luc).toLocaleString("vi-VN") : ""} · Lý do: {b.huy_ly_do}</span>}
               </span>
-              <span className="font-medium shrink-0">{money(b.total)}</span>
+              <span className={`font-medium shrink-0 ${b.da_huy ? "line-through text-slate-400" : ""}`}>{money(b.total)}</span>
             </button>
             {open === b.id && (
-              <ul className="text-sm divide-y border-t">
-                {openItems.map((it) => (
-                  <li key={it.id} className="py-1.5 flex justify-between gap-2">
-                    <span>{it.name}{it.code ? <span className="text-slate-500"> · {it.code}</span> : null}{it.is_new ? <span className="ml-1 text-xs text-green-700">(mới)</span> : null}</span>
-                    <span className="text-slate-600 shrink-0">{it.qty} × {money(it.cost_price)}</span>
-                  </li>
-                ))}
-              </ul>
+              <div className="space-y-3 border-t pt-2">
+                <ul className="text-sm divide-y">
+                  {openItems.map((it) => (
+                    <li key={it.id} className="py-1.5 space-y-0.5">
+                      <div className="flex justify-between gap-2">
+                        <span>{it.name}{it.code ? <span className="text-slate-500"> · {it.code}</span> : <span className="text-slate-400"> · không mã</span>}{it.is_new ? <span className="ml-1 text-xs text-green-700">(mới)</span> : null}</span>
+                        <b className="shrink-0">{money(Math.round(it.qty * it.cost_price))}</b>
+                      </div>
+                      <div className="text-xs text-slate-600">SL {it.qty} × giá nhập {money(it.cost_price)}</div>
+                      {b.da_huy && it.is_new && hideable.has(it.part_id ?? "") && (
+                        <button onClick={() => hidePart(it.part_id)} className="text-xs text-amber-700 border border-amber-300 rounded px-2 py-1">Ẩn phụ tùng này (tồn 0, chưa dùng)</button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {!b.da_huy && !editing && !cancelling && (
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={() => setEditing({ id: b.id, supplier: b.supplier ?? "", date: b.imported_on, note: b.note ?? "" })} className="border rounded-lg px-3 py-2 text-sm">Sửa thông tin</button>
+                    <button onClick={() => setCancelling({ id: b.id, reason: "", redo: false })} className="border border-red-300 text-red-700 rounded-lg px-3 py-2 text-sm">Hủy phiếu nhập</button>
+                    <button onClick={() => setCancelling({ id: b.id, reason: "", redo: true })} className="border border-amber-300 text-amber-700 rounded-lg px-3 py-2 text-sm">Hủy và nhập lại</button>
+                  </div>
+                )}
+                {editing?.id === b.id && (
+                  <div className="space-y-2 bg-slate-50 rounded-lg p-3">
+                    <p className="text-xs text-slate-500">Chỉ sửa thông tin, không đổi kho. Muốn đổi số lượng/giá: dùng &quot;Hủy và nhập lại&quot;.</p>
+                    <input type="date" className={input} value={editing.date} onChange={(e) => setEditing({ ...editing, date: e.target.value })} />
+                    <input className={input} placeholder="Nhà cung cấp" value={editing.supplier} onChange={(e) => setEditing({ ...editing, supplier: e.target.value })} />
+                    <input className={input} placeholder="Ghi chú" value={editing.note} onChange={(e) => setEditing({ ...editing, note: e.target.value })} />
+                    <div className="flex gap-2">
+                      <button disabled={busy} onClick={saveEdit} className="bg-green-600 text-white rounded-lg px-4 py-2 disabled:opacity-50">Lưu</button>
+                      <button onClick={() => setEditing(null)} className="border rounded-lg px-4 py-2">Đóng</button>
+                    </div>
+                  </div>
+                )}
+                {cancelling?.id === b.id && (
+                  <div className="space-y-2 bg-red-50 rounded-lg p-3">
+                    <p className="text-sm text-red-700">{cancelling.redo ? "Hủy phiếu này rồi mở lại màn hình nhập với dữ liệu cũ để sửa." : "Hủy phiếu: tồn kho sẽ bị trừ lại đúng số lượng đã nhập."}</p>
+                    <input className={input} placeholder="Lý do hủy (bắt buộc)" value={cancelling.reason} onChange={(e) => setCancelling({ ...cancelling, reason: e.target.value })} />
+                    <div className="flex gap-2">
+                      <button disabled={busy || !cancelling.reason.trim()} onClick={doCancel} className="bg-red-600 text-white rounded-lg px-4 py-2 disabled:opacity-50">{busy ? "Đang hủy..." : cancelling.redo ? "Hủy và nhập lại" : "Xác nhận hủy"}</button>
+                      <button onClick={() => setCancelling(null)} className="border rounded-lg px-4 py-2">Đóng</button>
+                    </div>
+                  </div>
+                )}
+                {openLogs.length > 0 && (
+                  <div className="text-xs text-slate-500 space-y-1">
+                    <b>Nhật ký</b>
+                    {openLogs.map((l) => <div key={l.id}>{new Date(l.created_at).toLocaleString("vi-VN")} · {l.created_by_name ?? "Không rõ"} · {l.noi_dung}</div>)}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         ))}

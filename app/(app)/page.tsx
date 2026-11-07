@@ -32,7 +32,7 @@ export default function Dashboard() {
       const o = await supabase.from("repair_orders").select("*", { count: "exact", head: true }).in("status", ["Chờ xử lý", "Đang sửa"]);
       const p = await supabase.from("repair_orders").select("paid_at, repair_items(kind, qty, unit_price, repair_item_costs(cost_price)), repair_costs(kind, amount)")
         .eq("stock_deducted", true).gte("paid_at", first).lte("paid_at", today);
-      const pt = await supabase.from("parts").select("id, name, stock, min_stock").order("stock");
+      const pt = await supabase.from("parts").select("id, name, stock, min_stock").eq("is_hidden", false).order("stock");
       if (p.error || pt.error) setError((p.error ?? pt.error)!.message);
       const day = emptyBd(), mon = emptyBd();
       for (const r of (p.data ?? []) as unknown as Paid[]) {

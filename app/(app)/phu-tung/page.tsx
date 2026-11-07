@@ -40,7 +40,7 @@ function Reconcile() {
   );
 }
 
-type Part = { id: string; name: string; code: string | null; cost_price?: number; sale_price: number; stock: number };
+type Part = { id: string; name: string; code: string | null; cost_price?: number; sale_price: number; stock: number; is_hidden?: boolean };
 const empty = { name: "", code: "", cost_price: "", sale_price: "", stock: "" };
 
 export default function PartsPage() {
@@ -49,6 +49,7 @@ export default function PartsPage() {
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const [showHidden, setShowHidden] = useState(false);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
@@ -99,7 +100,11 @@ export default function PartsPage() {
     if (error) setError(error.message); else load();
   }
 
-  const shown = list.filter((p) => !q || `${p.name} ${p.code ?? ""}`.toLowerCase().includes(q.toLowerCase()));
+  async function unhide(p: Part) {
+    const { error } = await supabase.rpc("bo_an_phu_tung", { p_part: p.id });
+    if (error) setError(error.message); else load();
+  }
+  const shown = list.filter((p) => (showHidden || !p.is_hidden) && (!q || `${p.name} ${p.code ?? ""}`.toLowerCase().includes(q.toLowerCase())));
   const input = "w-full border rounded-lg px-3 py-2";
 
   return (
@@ -121,11 +126,14 @@ export default function PartsPage() {
       </form>
       {error && <p className="text-sm text-red-600">{error}</p>}
       <input placeholder="Tìm theo tên hoặc mã..." className={input} value={q} onChange={(e) => setQ(e.target.value)} />
+      {isOwner && list.some((p) => p.is_hidden) && (
+        <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} /> Hiện cả phụ tùng đã ẩn</label>
+      )}
       <ul className="space-y-2">
         {shown.map((p) => (
           <li key={p.id} className="bg-white rounded-xl shadow p-3 space-y-1">
             <div className="flex justify-between gap-2">
-              <Link href={`/phu-tung/${p.id}`} className="font-medium text-blue-700">{p.name}{p.code ? <span className="text-slate-500 font-normal"> · {p.code}</span> : null}</Link>
+              <Link href={`/phu-tung/${p.id}`} className="font-medium text-blue-700">{p.name}{p.code ? <span className="text-slate-500 font-normal"> · {p.code}</span> : null}{p.is_hidden ? <span className="ml-1 text-xs text-amber-700 font-normal">(đã ẩn)</span> : null}</Link>
               <span className={`text-xs px-2 py-1 rounded-full shrink-0 ${p.stock > 0 ? "bg-green-100 text-green-800" : "bg-red-100 text-red-700"}`}>Tồn: {p.stock}</span>
             </div>
             <div className="text-sm text-slate-500">{isOwner ? `Nhập ${money(p.cost_price ?? 0)} · ` : ""}Bán {money(p.sale_price)}</div>
@@ -133,6 +141,7 @@ export default function PartsPage() {
               <Link href={`/phu-tung/${p.id}`} className="text-blue-600">Lịch sử</Link>
               <button onClick={() => edit(p)} className="text-blue-600">Sửa</button>
               <button onClick={() => remove(p)} className="text-red-600">Xóa</button>
+              {isOwner && p.is_hidden && <button onClick={() => unhide(p)} className="text-amber-700">Bỏ ẩn</button>}
             </div>
           </li>
         ))}

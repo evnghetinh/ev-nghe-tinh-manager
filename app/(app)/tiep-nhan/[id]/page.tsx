@@ -39,7 +39,7 @@ export default function QuotePage() {
   const load = useCallback(async () => {
     const o = await supabase.from("repair_orders").select("code, issue, status, payment_method, paid_at, stock_deducted, odometer, vehicles(plate), customers(name, phone, address)").eq("id", id).single();
     const i = await supabase.rpc("dong_bao_gia", { p_order: id });
-    const p = await supabase.from("parts").select("id, name, code, sale_price, stock").order("name");
+    const p = await supabase.from("parts").select("id, name, code, sale_price, stock").eq("is_hidden", false).order("name");
     if (o.error) setError(o.error.message); else setOrder(o.data as unknown as Order);
     if (i.error) setError(i.error.message); else if (i.data) setItems((i.data as Item[]).map((x) => ({ ...x, qty: Number(x.qty), unit_price: Number(x.unit_price) })));
     if (p.data) setParts(p.data as Part[]);

@@ -11,7 +11,7 @@ type Row = { id: string; loai: string; so_luong: number; ton_sau: number; order_
 
 const LOAI: Record<string, string> = {
   ton_dau: "Tồn đầu kỳ", nhap_hang: "Nhập hàng", xuat_phieu: "Xuất cho phiếu", them_khi_sua: "Thêm khi sửa phiếu",
-  xoa_khi_sua: "Xóa khi sửa phiếu", khach_tra: "Khách trả hàng", kiem_ke: "Kiểm kê điều chỉnh",
+  xoa_khi_sua: "Xóa khi sửa phiếu", khach_tra: "Khách trả hàng", kiem_ke: "Kiểm kê điều chỉnh", huy_nhap_hang: "Hủy nhập hàng",
 };
 
 export default function PartDetail() {
