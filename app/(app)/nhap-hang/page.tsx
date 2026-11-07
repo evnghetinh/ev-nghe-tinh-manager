@@ -83,6 +83,14 @@ export default function ImportPage() {
   }, []);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (isOwner) loadAll(); }, [isOwner, loadAll]);
+  // Mở sẵn lần nhập khi đi từ sổ kho sang (?mo=<id>)
+  useEffect(() => {
+    const mo = new URLSearchParams(window.location.search).get("mo");
+    if (!isOwner || !mo) return;
+    supabase.from("stock_import_items").select("*").eq("import_id", mo).order("name").then(({ data }) => {
+      if (data) { setOpenItems(data as BatchItem[]); setOpen(mo); }
+    });
+  }, [isOwner]);
 
   function buildRows(r: Raw, m: Mapping): Row[] {
     const g = (row: unknown[], k: Field) => (m[k] >= 0 ? cellText(row[m[k]]) : "");

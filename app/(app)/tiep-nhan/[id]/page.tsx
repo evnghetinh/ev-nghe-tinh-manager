@@ -13,7 +13,7 @@ import EvInfo from "./ev";
 type Item = { id: string; kind: "part" | "labor"; name: string; qty: number; unit_price: number };
 type Part = { id: string; name: string; code: string | null; sale_price: number; stock: number };
 type Past = { id: string; code: number; received_at: string; odometer: number | null; issue: string; status: string; items: { kind: "part" | "labor"; name: string; qty: number }[] };
-type Log = { id: string; action: "them" | "xoa"; kind: "part" | "labor"; item_name: string; qty: number; unit_price: number; total_before: number; total_after: number; created_by_name: string | null; created_at: string };
+type Log = { id: string; action: "them" | "xoa" | "tra"; ghi_chu: string | null; kind: "part" | "labor"; item_name: string; qty: number; unit_price: number; total_before: number; total_after: number; created_by_name: string | null; created_at: string };
 type Order = { code: number; issue: string; status: string; payment_method: string | null; paid_at: string | null; stock_deducted: boolean; odometer: number | null; vehicles: { plate: string } | null; customers: { name: string; phone: string | null; address: string | null } | null };
 
 export default function QuotePage() {
@@ -33,6 +33,7 @@ export default function QuotePage() {
   const [editing, setEditing] = useState(false);
   const [logs, setLogs] = useState<Log[]>([]);
   const [notice, setNotice] = useState("");
+  const [ret, setRet] = useState<{ id: string; qty: string; reason: string } | null>(null);
   const [partsCost, setPartsCost] = useState(0);
 
   const load = useCallback(async () => {
@@ -43,7 +44,7 @@ export default function QuotePage() {
     if (i.error) setError(i.error.message); else if (i.data) setItems((i.data as Item[]).map((x) => ({ ...x, qty: Number(x.qty), unit_price: Number(x.unit_price) })));
     if (p.data) setParts(p.data as Part[]);
     if (role === "chu") {
-      const l = await supabase.from("repair_edit_logs").select("id, action, kind, item_name, qty, unit_price, total_before, total_after, created_by_name, created_at").eq("order_id", id).order("created_at", { ascending: false });
+      const l = await supabase.from("repair_edit_logs").select("id, action, ghi_chu, kind, item_name, qty, unit_price, total_before, total_after, created_by_name, created_at").eq("order_id", id).order("created_at", { ascending: false });
       if (l.data) setLogs(l.data as Log[]);
       const c = await supabase.from("repair_items").select("kind, qty, repair_item_costs(cost_price)").eq("order_id", id);
       if (c.data) {
@@ -111,6 +112,20 @@ export default function QuotePage() {
     const { error } = await supabase.from("repair_items").delete().eq("id", it.id);
     if (error) setError(error.message); else load();
   }
+  async function giveBack(it: Item) {
+    if (!ret) return;
+    setError("");
+    const n = Number(ret.qty);
+    if (!n || n <= 0) return setError("Số lượng trả phải lớn hơn 0.");
+    if (n > it.qty) return setError(`Số lượng trả không được quá ${it.qty}.`);
+    if (!ret.reason.trim()) return setError("Hãy nhập lý do trả hàng.");
+    if (!confirm(`Khách trả ${n} × ${it.name}? Kho cộng lại ${n}, doanh thu phiếu giảm ${money(n * it.unit_price)}.`)) return;
+    setBusy(true);
+    const r = await supabase.rpc("khach_tra_hang", { p_item: it.id, p_qty: n, p_ly_do: ret.reason });
+    setBusy(false);
+    if (r.error) return setError(r.error.message);
+    setRet(null); report(r.data); load();
+  }
   function report(d: { truoc: number; sau: number }) {
     const diff = d.sau - d.truoc;
     setNotice(`Đã lưu và ghi nhật ký. Tổng trước ${money(d.truoc)} → sau ${money(d.sau)} (${diff >= 0 ? "tăng " : "giảm "}${money(Math.abs(diff))}).`);
@@ -167,7 +182,8 @@ export default function QuotePage() {
 
       <ul className="space-y-2">
         {items.map((it) => (
-          <li key={it.id} className="bg-white rounded-xl shadow p-3 flex justify-between gap-2 items-center">
+          <li key={it.id} className="bg-white rounded-xl shadow p-3 space-y-2">
+          <div className="flex justify-between gap-2 items-center">
             <div>
               <div className="font-medium">{it.name} <span className="text-xs text-slate-500">({it.kind === "part" ? "Phụ tùng" : "Tiền công"})</span></div>
               <div className="text-sm text-slate-500">{it.qty} × {money(it.unit_price)}</div>
@@ -175,7 +191,16 @@ export default function QuotePage() {
             <div className="text-right shrink-0">
               <div className="font-medium">{money(it.qty * it.unit_price)}</div>
               {canEdit && <button disabled={busy} onClick={() => remove(it)} className="text-red-600 text-sm">Xóa</button>}
+              {done && role === "chu" && it.kind === "part" && <button disabled={busy} onClick={() => setRet(ret?.id === it.id ? null : { id: it.id, qty: "1", reason: "" })} className="text-amber-700 text-sm ml-3">Khách trả</button>}
             </div>
+          </div>
+          {ret?.id === it.id && (
+            <div className="border-t pt-2 grid gap-2 sm:grid-cols-[100px_1fr_auto]">
+              <input inputMode="decimal" aria-label="Số lượng trả" className={input} value={ret.qty} onChange={(e) => setRet({ ...ret, qty: e.target.value.replace(/[^d.]/g, "") })} />
+              <input aria-label="Lý do trả" placeholder="Lý do trả hàng (bắt buộc)" className={input} value={ret.reason} onChange={(e) => setRet({ ...ret, reason: e.target.value })} />
+              <button disabled={busy} onClick={() => giveBack(it)} className="bg-amber-600 text-white rounded-lg px-4 py-2 disabled:opacity-50">Xác nhận trả</button>
+            </div>
+          )}
           </li>
         ))}
         {items.length === 0 && <li className="text-slate-500 text-sm">Chưa có dòng nào.</li>}
@@ -221,7 +246,8 @@ export default function QuotePage() {
                 return (
                   <li key={l.id} className="border rounded-lg p-3 text-sm space-y-1">
                     <div className="text-slate-500">{new Date(l.created_at).toLocaleString("vi-VN")} · {l.created_by_name ?? "Không rõ"}</div>
-                    <div><b className={l.action === "them" ? "text-green-700" : "text-red-600"}>{l.action === "them" ? "Thêm" : "Xóa"}</b> {l.kind === "part" ? "phụ tùng" : "tiền công"} <b>{l.item_name}</b> ({l.qty} × {money(l.unit_price)})</div>
+                    <div><b className={l.action === "them" ? "text-green-700" : l.action === "tra" ? "text-amber-700" : "text-red-600"}>{l.action === "them" ? "Thêm" : l.action === "tra" ? "Khách trả" : "Xóa"}</b> {l.kind === "part" ? "phụ tùng" : "tiền công"} <b>{l.item_name}</b> ({l.qty} × {money(l.unit_price)})</div>
+                    {l.ghi_chu && <div>Lý do: {l.ghi_chu}</div>}
                     <div>Tổng: {money(l.total_before)} → {money(l.total_after)} ({diff >= 0 ? "+" : "−"}{money(Math.abs(diff))})</div>
                   </li>
                 );
