@@ -20,9 +20,9 @@ export default function PrintQuote() {
     (async () => {
       // Chỉ lấy giá bán, không đụng tới giá nhập/lợi nhuận.
       const o = await supabase.from("repair_orders").select("code, odometer, issue, created_at, vehicles(plate), customers(name, phone, address)").eq("id", id).single();
-      const i = await supabase.from("repair_items").select("id, kind, name, qty, unit_price").eq("order_id", id).order("created_at");
+      const i = await supabase.rpc("dong_bao_gia", { p_order: id });
       if (o.error) setError(o.error.message); else setOrder(o.data as unknown as Order);
-      if (i.data) setItems(i.data as Item[]);
+      if (i.error) setError(i.error.message); else if (i.data) setItems((i.data as Item[]).map((x) => ({ ...x, qty: Number(x.qty), unit_price: Number(x.unit_price) })));
     })();
   }, [id]);
 

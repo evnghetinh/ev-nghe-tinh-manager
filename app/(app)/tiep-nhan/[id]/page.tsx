@@ -7,6 +7,7 @@ import { money, digits } from "@/lib/format";
 import { useRole } from "@/lib/role";
 import Photos from "./photos";
 import PartPicker from "./part-picker";
+import Costs from "./costs";
 
 type Item = { id: string; kind: "part" | "labor"; name: string; qty: number; unit_price: number };
 type Part = { id: string; name: string; code: string | null; sale_price: number; stock: number };
@@ -31,17 +32,26 @@ export default function QuotePage() {
   const [editing, setEditing] = useState(false);
   const [logs, setLogs] = useState<Log[]>([]);
   const [notice, setNotice] = useState("");
+  const [partsCost, setPartsCost] = useState(0);
 
   const load = useCallback(async () => {
     const o = await supabase.from("repair_orders").select("code, issue, status, payment_method, paid_at, stock_deducted, odometer, vehicles(plate), customers(name, phone, address)").eq("id", id).single();
-    const i = await supabase.from("repair_items").select("id, kind, name, qty, unit_price").eq("order_id", id).order("created_at");
+    const i = await supabase.rpc("dong_bao_gia", { p_order: id });
     const p = await supabase.from("parts").select("id, name, code, sale_price, stock").order("name");
     if (o.error) setError(o.error.message); else setOrder(o.data as unknown as Order);
-    if (i.data) setItems(i.data as Item[]);
+    if (i.error) setError(i.error.message); else if (i.data) setItems((i.data as Item[]).map((x) => ({ ...x, qty: Number(x.qty), unit_price: Number(x.unit_price) })));
     if (p.data) setParts(p.data as Part[]);
     if (role === "chu") {
       const l = await supabase.from("repair_edit_logs").select("id, action, kind, item_name, qty, unit_price, total_before, total_after, created_by_name, created_at").eq("order_id", id).order("created_at", { ascending: false });
       if (l.data) setLogs(l.data as Log[]);
+      const c = await supabase.from("repair_items").select("kind, qty, repair_item_costs(cost_price)").eq("order_id", id);
+      if (c.data) {
+        type Row = { kind: string; qty: number; repair_item_costs: { cost_price: number } | { cost_price: number }[] | null };
+        setPartsCost((c.data as unknown as Row[]).filter((r) => r.kind === "part").reduce((s, r) => {
+          const x = r.repair_item_costs;
+          return s + r.qty * ((Array.isArray(x) ? x[0]?.cost_price : x?.cost_price) ?? 0);
+        }, 0));
+      }
     }
     const h = await supabase.rpc("lich_su_xe", { p_order: id });
     if (h.error) { setPastError(h.error.message); setPast([]); } else { setPastError(""); setPast(h.data as Past[]); }
@@ -219,6 +229,8 @@ export default function QuotePage() {
           )}
         </section>
       )}
+
+      {role === "chu" && <Costs orderId={id} revenue={partsTotal + laborTotal} partsCost={partsCost} />}
 
       <Photos orderId={id} />
 
