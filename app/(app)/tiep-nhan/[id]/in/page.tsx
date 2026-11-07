@@ -7,7 +7,7 @@ import { money } from "@/lib/format";
 import { GARA } from "@/lib/gara";
 
 type Item = { id: string; kind: "part" | "labor"; name: string; qty: number; unit_price: number };
-type Order = { code: number; issue: string; created_at: string; vehicles: { plate: string } | null; customers: { name: string; phone: string | null } | null };
+type Order = { code: number; odometer: number | null; issue: string; created_at: string; vehicles: { plate: string } | null; customers: { name: string; phone: string | null; address: string | null } | null };
 
 export default function PrintQuote() {
   const { id } = useParams<{ id: string }>();
@@ -19,7 +19,7 @@ export default function PrintQuote() {
   useEffect(() => {
     (async () => {
       // Chỉ lấy giá bán, không đụng tới giá nhập/lợi nhuận.
-      const o = await supabase.from("repair_orders").select("code, issue, created_at, vehicles(plate), customers(name, phone)").eq("id", id).single();
+      const o = await supabase.from("repair_orders").select("code, odometer, issue, created_at, vehicles(plate), customers(name, phone, address)").eq("id", id).single();
       const i = await supabase.from("repair_items").select("id, kind, name, qty, unit_price").eq("order_id", id).order("created_at");
       if (o.error) setError(o.error.message); else setOrder(o.data as unknown as Order);
       if (i.data) setItems(i.data as Item[]);
@@ -54,7 +54,9 @@ export default function PrintQuote() {
             <div>Ngày: <b>{date}</b></div>
             <div>Khách hàng: <b>{order.customers?.name}</b></div>
             <div>Điện thoại: <b>{order.customers?.phone ?? ""}</b></div>
+            <div className="col-span-2">Địa chỉ: <b>{order.customers?.address ?? ""}</b></div>
             <div>Biển số xe: <b>{order.vehicles?.plate}</b></div>
+            <div>Số km đã đi: <b>{order.odometer != null ? `${new Intl.NumberFormat("vi-VN").format(order.odometer)} km` : ""}</b></div>
             <div className="col-span-2">Nội dung: {order.issue}</div>
           </div>
           <div className="overflow-x-auto">
