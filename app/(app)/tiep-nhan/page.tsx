@@ -1,6 +1,8 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { EmptyState, Icon, LoadingBlock, PageTitle, StatusBadge, Toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 
 type Order = { id: string; code: number; customer_id: string; received_at: string; odometer: number | null; issue: string; status: string; note: string | null; vehicles: { plate: string; model: string | null } | null; customers: { name: string; phone: string | null } | null };
@@ -13,7 +15,6 @@ const squash = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").replace
 const STATUS = ["Chờ xử lý", "Đang sửa", "Hoàn thành", "Đã giao xe"];
 const empty = { vehicle_id: "", odometer: "", issue: "", note: "", soc: "", soh: "", pin: "" };
 type Ktv = { id: string; ten: string };
-const color: Record<string, string> = { "Chờ xử lý": "bg-amber-100 text-amber-800", "Đang sửa": "bg-blue-100 text-blue-800", "Hoàn thành": "bg-green-100 text-green-800", "Đã giao xe": "bg-slate-100 text-slate-600" };
 
 export default function OrdersPage() {
   const [list, setList] = useState<Order[]>([]);
@@ -30,6 +31,8 @@ export default function OrdersPage() {
   const [chosen, setChosen] = useState<string[]>([]);
   const [dtcs, setDtcs] = useState<{ ma: string; ghi_chu: string }[]>([]);
   const [error, setError] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const tim = useSearchParams().get("tim") ?? "";
 
   const load = useCallback(async () => {
     const o = await supabase.from("repair_orders").select("*, vehicles(plate, model), customers(name, phone)").order("created_at", { ascending: false });
@@ -38,6 +41,7 @@ export default function OrdersPage() {
     if (c.data) setCusts(c.data as Cust[]);
     if (o.error) setError(o.error.message); else setList(o.data as unknown as Order[]);
     if (v.data) setVehs(v.data as unknown as Veh[]);
+    setLoaded(true);
     const k = await supabase.from("ev_ky_thuat_vien").select("id, ten").eq("dang_lam", true).order("ten");
     if (k.data) setKtvs(k.data as Ktv[]);
   }, []);
@@ -115,13 +119,14 @@ export default function OrdersPage() {
     const h = squash(`${v.plate} ${v.vehicle_type ?? ""} ${v.customers?.name ?? ""} ${v.customers?.phone ?? ""}`);
     return tokens.every((t) => h.includes(t));
   }).slice(0, 30);
-  const shown = list.filter((o) => !filter || o.status === filter);
-  const input = "w-full border rounded-lg px-3 py-2";
+  const timTokens = tim.trim().split(/s+/).map(squash).filter(Boolean);
+  const shown = list.filter((o) => (!filter || o.status === filter) && timTokens.every((t) => squash(`PT${String(o.code).padStart(4, "0")} ${o.vehicles?.plate ?? ""} ${o.customers?.name ?? ""} ${o.customers?.phone ?? ""} ${o.issue}`).includes(t)));
+  const input = "w-full border px-3 py-2";
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold">Phiếu tiếp nhận sửa chữa</h1>
-      <form onSubmit={save} className="bg-white rounded-xl shadow p-4 grid gap-3 sm:grid-cols-2">
+      <PageTitle icon={<Icon name="clipboard" />} title="Phiếu tiếp nhận sửa chữa" />
+      <form onSubmit={save} className="card grid gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2 space-y-2">
           <div className="relative">
             <input placeholder="Gõ biển số, tên khách hoặc số điện thoại để tìm xe *" className={input} value={q} autoComplete="off"
@@ -174,7 +179,7 @@ export default function OrdersPage() {
               <button type="button" onClick={() => setDtcs(dtcs.filter((_, j) => j !== n))} className="text-red-600 px-2">Xóa</button>
             </div>
           ))}
-          <button type="button" onClick={() => setDtcs([...dtcs, { ma: "", ghi_chu: "" }])} className="border rounded-lg px-3 py-2 text-sm">+ Thêm mã lỗi</button>
+          <button type="button" onClick={() => setDtcs([...dtcs, { ma: "", ghi_chu: "" }])} className="btn-secondary text-sm">+ Thêm mã lỗi</button>
         </div>
         <div className="sm:col-span-2 space-y-2">
           <div className="text-sm font-medium">Kỹ thuật viên</div>
@@ -188,20 +193,20 @@ export default function OrdersPage() {
         </div>
         <p className="sm:col-span-2 text-xs text-slate-500">Nhân viên tiếp nhận được lấy theo tài khoản đăng nhập.</p>
         <textarea required placeholder="Khách báo hỏng gì? *" rows={2} className={`${input} sm:col-span-2`} value={form.issue} onChange={(e) => setForm({ ...form, issue: e.target.value })} />
-        <div className="sm:col-span-2"><button disabled={busy} className="bg-green-600 text-white rounded-lg px-4 py-2 disabled:opacity-60">{busy ? "Đang tạo..." : "Tạo phiếu tiếp nhận"}</button></div>
+        <div className="sm:col-span-2"><button disabled={busy} className="btn-primary disabled:opacity-60">{busy ? "Đang tạo..." : "Tạo phiếu tiếp nhận"}</button></div>
       </form>
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      <Toast text={error} onClose={() => setError("")} />
       <select className={input} value={filter} onChange={(e) => setFilter(e.target.value)}>
         <option value="">Tất cả trạng thái</option>
         {STATUS.map((s) => <option key={s}>{s}</option>)}
       </select>
       <ul className="space-y-2">
         {shown.map((o) => (
-          <li key={o.id} className="bg-white rounded-xl shadow p-3 space-y-2">
+          <li key={o.id} className="card space-y-2">
             <Link href={`/tiep-nhan/${o.id}`} className="block space-y-2">
               <div className="flex justify-between gap-2">
-                <div className="font-medium">PT{String(o.code).padStart(4, "0")} · {o.vehicles?.plate}</div>
-                <span className={`text-xs px-2 py-1 rounded-full shrink-0 ${color[o.status]}`}>{o.status}</span>
+                <div className="font-semibold text-navy-900">PT{String(o.code).padStart(4, "0")} · {o.vehicles?.plate}</div>
+                <StatusBadge status={o.status} />
               </div>
               <div className="text-sm">{o.issue}</div>
               <div className="text-sm text-slate-500">
@@ -210,15 +215,16 @@ export default function OrdersPage() {
               </div>
             </Link>
             <div className="flex gap-2 items-center">
-              <select className="border rounded-lg px-2 py-1 text-sm" value={o.status} onChange={(e) => setStatus(o.id, e.target.value)}>
+              <select className="border px-2 text-sm" value={o.status} onChange={(e) => setStatus(o.id, e.target.value)}>
                 {STATUS.map((s) => <option key={s}>{s}</option>)}
               </select>
-              <Link href={`/tiep-nhan/${o.id}`} className="text-blue-600 text-sm">Báo giá</Link>
-              <button onClick={() => remove(o)} className="text-red-600 text-sm ml-auto">Xóa</button>
+              <Link href={`/tiep-nhan/${o.id}`} className="btn btn-secondary text-sm !px-3">Báo giá</Link>
+              <button onClick={() => remove(o)} className="bare text-red-600 text-sm ml-auto px-3 min-h-11">Xóa</button>
             </div>
           </li>
         ))}
-        {shown.length === 0 && <li className="text-slate-500 text-sm">Chưa có phiếu.</li>}
+        {!loaded && <li><LoadingBlock rows={3} /></li>}
+        {loaded && shown.length === 0 && <li><EmptyState icon={<Icon name="clipboard" />} text={tim || filter ? "Không có phiếu nào khớp. Thử bỏ bộ lọc hoặc đổi từ khóa tìm." : "Chưa có phiếu nào. Điền form phía trên để tiếp nhận xe đầu tiên."} /></li>}
       </ul>
     </div>
   );

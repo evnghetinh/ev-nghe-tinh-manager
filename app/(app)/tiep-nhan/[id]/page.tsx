@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { money, digits, qtyText, decimalInput, toNum, COT_PHU_TUNG, tonText, type DonVi } from "@/lib/format";
 import { useRole } from "@/lib/role";
+import { StatusBadge, Toast } from "@/components/ui";
 import Photos from "./photos";
 import PartPicker from "./part-picker";
 import Costs from "./costs";
@@ -152,27 +153,27 @@ export default function QuotePage() {
   const laborTotal = sum("labor");
   const done = !!order?.stock_deducted;
   const canEdit = !done || (role === "chu" && editing);
-  const input = "w-full border rounded-lg px-3 py-2";
+  const input = "w-full border px-3 py-2";
 
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center gap-2">
-        <Link href="/tiep-nhan" className="text-sm text-blue-600">← Quay lại danh sách phiếu</Link>
-        <Link href={`/tiep-nhan/${id}/in`} className="bg-blue-600 text-white rounded-lg px-4 py-2 text-sm">In báo giá</Link>
+        <Link href="/tiep-nhan" className="text-sm font-medium text-brand-700 inline-flex items-center min-h-11">← Quay lại danh sách phiếu</Link>
+        <Link href={`/tiep-nhan/${id}/in`} className="btn btn-primary text-sm">In báo giá</Link>
       </div>
       {order && (
-        <div className="bg-white rounded-xl shadow p-4">
-          <h1 className="text-xl font-bold">Báo giá PT{String(order.code).padStart(4, "0")} · {order.vehicles?.plate}</h1>
-          <p className="text-sm text-slate-500">{order.customers?.name}{order.customers?.phone ? ` (${order.customers.phone})` : ""} · {order.status}</p>
+        <div className="card border-l-4 border-brand-500">
+          <div className="flex justify-between gap-2 items-start"><h1 className="text-xl font-bold text-navy-900">Báo giá PT{String(order.code).padStart(4, "0")} · {order.vehicles?.plate}</h1><StatusBadge status={order.status} /></div>
+          <p className="text-sm text-slate-500">{order.customers?.name}{order.customers?.phone ? ` (${order.customers.phone})` : ""}</p>
           {order.customers?.address && <p className="text-sm text-slate-500">Địa chỉ: {order.customers.address}</p>}
           {order.odometer != null && <p className="text-sm text-slate-500">Số km: {new Intl.NumberFormat("vi-VN").format(order.odometer)} km</p>}
           <p className="text-sm mt-1">{order.issue}</p>
         </div>
       )}
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      {notice && <p className="text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg p-3">{notice}</p>}
+      <Toast text={error} onClose={() => setError("")} />
+      <Toast text={error ? "" : notice} kind="ok" onClose={() => setNotice("")} />
 
-      {canEdit && <form onSubmit={addPart} className="bg-white rounded-xl shadow p-4 grid gap-3 sm:grid-cols-[1fr_10rem_auto] items-start">
+      {canEdit && <form onSubmit={addPart} className="card grid gap-3 sm:grid-cols-[1fr_10rem_auto] items-start">
         <PartPicker parts={parts} value={partId} onChange={setPartId} className={input} />
         <div className="space-y-1">
           <div className="flex items-center gap-2">
@@ -182,19 +183,19 @@ export default function QuotePage() {
           {picked && <div className="text-xs text-slate-500">Đơn giá {money(picked.sale_price)}/{picked.don_vi_ban}</div>}
           {overStock && picked && <div className="text-xs text-red-600 font-medium">Vượt tồn: chỉ còn {tonText(picked.stock, picked)}</div>}
         </div>
-        <button disabled={busy} className="bg-green-600 text-white rounded-lg px-4 py-2 disabled:opacity-50">Thêm phụ tùng</button>
+        <button disabled={busy} className="btn-primary disabled:opacity-50">Thêm phụ tùng</button>
         {parts.length === 0 && <p className="sm:col-span-3 text-sm text-amber-700">Chưa có phụ tùng. Hãy thêm ở mục Phụ tùng.</p>}
       </form>}
 
-      {canEdit && <form onSubmit={addLabor} className="bg-white rounded-xl shadow p-4 grid gap-3 sm:grid-cols-[1fr_10rem_auto]">
+      {canEdit && <form onSubmit={addLabor} className="card grid gap-3 sm:grid-cols-[1fr_10rem_auto]">
         <input required placeholder="Tiền công (vd: Thay bộ sạc) *" className={input} value={labor.name} onChange={(e) => setLabor({ ...labor, name: e.target.value })} />
         <input required placeholder="Số tiền (đ) *" inputMode="numeric" className={input} value={labor.price} onChange={(e) => setLabor({ ...labor, price: digits(e.target.value) })} />
-        <button disabled={busy} className="bg-green-600 text-white rounded-lg px-4 py-2 disabled:opacity-50">Thêm tiền công</button>
+        <button disabled={busy} className="btn-primary disabled:opacity-50">Thêm tiền công</button>
       </form>}
 
       <ul className="space-y-2">
         {items.map((it) => (
-          <li key={it.id} className="bg-white rounded-xl shadow p-3 space-y-2">
+          <li key={it.id} className="card space-y-2">
           <div className="flex justify-between gap-2 items-center">
             <div>
               <div className="font-medium">{it.name} <span className="text-xs text-slate-500">({it.kind === "part" ? "Phụ tùng" : "Tiền công"})</span></div>
@@ -210,7 +211,7 @@ export default function QuotePage() {
             <div className="border-t pt-2 grid gap-2 sm:grid-cols-[100px_1fr_auto]">
               <input inputMode="decimal" aria-label="Số lượng trả" className={input} value={ret.qty} onChange={(e) => setRet({ ...ret, qty: decimalInput(e.target.value) })} />
               <input aria-label="Lý do trả" placeholder="Lý do trả hàng (bắt buộc)" className={input} value={ret.reason} onChange={(e) => setRet({ ...ret, reason: e.target.value })} />
-              <button disabled={busy} onClick={() => giveBack(it)} className="bg-amber-600 text-white rounded-lg px-4 py-2 disabled:opacity-50">Xác nhận trả</button>
+              <button disabled={busy} onClick={() => giveBack(it)} className="btn bg-amber-600 text-white px-4 disabled:opacity-50">Xác nhận trả</button>
             </div>
           )}
           </li>
@@ -218,10 +219,10 @@ export default function QuotePage() {
         {items.length === 0 && <li className="text-slate-500 text-sm">Chưa có dòng nào.</li>}
       </ul>
 
-      <div className="bg-green-50 border border-green-200 rounded-xl p-4 space-y-1">
+      <div className="rounded-2xl p-4 space-y-1 text-white" style={{ background: "linear-gradient(135deg,#0f2747,#0866b8)" }}>
         <div className="flex justify-between text-sm"><span>Tiền phụ tùng</span><span>{money(partsTotal)}</span></div>
         <div className="flex justify-between text-sm"><span>Tiền công</span><span>{money(laborTotal)}</span></div>
-        <div className="flex justify-between text-lg font-bold"><span>Tổng báo giá</span><span>{money(partsTotal + laborTotal)}</span></div>
+        <div className="flex justify-between text-xl font-bold border-t border-white/30 pt-2 mt-1"><span>Tổng báo giá</span><span>{money(partsTotal + laborTotal)}</span></div>
       </div>
 
       {done ? (
@@ -234,22 +235,22 @@ export default function QuotePage() {
                 <button onClick={() => { setEditing(false); setNotice(""); }} className="border bg-white rounded-lg px-4 py-2">Đóng chỉnh sửa</button>
               </div>
             ) : (
-              <button onClick={() => { setEditing(true); setNotice(""); }} className="bg-amber-600 text-white rounded-lg px-4 py-2">Mở chỉnh sửa</button>
+              <button onClick={() => { setEditing(true); setNotice(""); }} className="btn bg-amber-600 text-white px-4">Mở chỉnh sửa</button>
             )
           ) : <p className="text-slate-500">Chỉ Chủ xưởng được sửa phiếu đã hoàn thành.</p>}
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow p-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+        <div className="card grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
           <select className={input} value={pay.method} onChange={(e) => setPay({ ...pay, method: e.target.value })}>
             <option>Tiền mặt</option><option>Chuyển khoản</option>
           </select>
           <input type="date" className={input} value={pay.date} onChange={(e) => setPay({ ...pay, date: e.target.value })} />
-          <button onClick={complete} disabled={busy || items.length === 0} className="bg-green-700 text-white rounded-lg px-4 py-2 disabled:opacity-50">Hoàn thành và thu tiền</button>
+          <button onClick={complete} disabled={busy || items.length === 0} className="btn-primary disabled:opacity-50">Hoàn thành và thu tiền</button>
         </div>
       )}
 
       {done && role === "chu" && (
-        <section className="bg-white rounded-xl shadow p-4 space-y-2">
+        <section className="card space-y-2">
           <h2 className="font-bold">Nhật ký chỉnh sửa</h2>
           {logs.length === 0 ? <p className="text-sm text-slate-500">Chưa có lần sửa nào sau khi hoàn thành.</p> : (
             <ul className="space-y-2">
@@ -275,7 +276,7 @@ export default function QuotePage() {
 
       <Photos orderId={id} />
 
-      <section className="bg-white rounded-xl shadow p-4 space-y-3">
+      <section className="card space-y-3">
         <h2 className="font-bold">Lịch sử sửa chữa của xe này</h2>
         {past === null ? <p className="text-sm text-slate-500">Đang tải...</p> : (
           <>

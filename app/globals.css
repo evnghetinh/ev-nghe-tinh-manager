@@ -1,26 +1,74 @@
 @import "tailwindcss";
 
+/* ===== Bộ nhận diện EV Nghệ Tĩnh Auto: xanh điện + navy ===== */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --brand-50: #eaf6ff;
+  --brand-100: #d2ebff;
+  --brand-200: #a8d8ff;
+  --brand-500: #1597f5;
+  --brand-600: #0a7fe0;
+  --brand-700: #0866b8;
+  --brand-800: #0a4e8c;
+  --navy-900: #0a1b33;
+  --navy-800: #0f2747;
+  --navy-700: #17345c;
+  --radius-card: 16px;
+  --radius-ctl: 12px;
+  --shadow-card: 0 1px 2px rgba(10, 27, 51, 0.06), 0 4px 14px rgba(10, 27, 51, 0.06);
+  --space-page: 1rem;
+  --background: #f2f6fb;
+  --foreground: #0f1b2d;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-app), system-ui, sans-serif;
+  /* "green" cũ của các trang = màu thương hiệu xanh điện, để mọi trang đồng bộ */
+  --color-green-50: var(--brand-50);
+  --color-green-100: var(--brand-100);
+  --color-green-200: var(--brand-200);
+  --color-green-600: var(--brand-600);
+  --color-green-700: var(--brand-700);
+  --color-green-800: var(--brand-800);
+  --color-navy-700: var(--navy-700);
+  --color-navy-800: var(--navy-800);
+  --color-navy-900: var(--navy-900);
+  --color-brand-500: var(--brand-500);
+  --color-brand-600: var(--brand-600);
+  --color-brand-700: var(--brand-700);
+  --shadow-card: var(--shadow-card);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+body { background: var(--background); color: var(--foreground); font-size: 16px; line-height: 1.5; }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Ô nhập, nút: cao tối thiểu 44px, bo góc thống nhất */
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea {
+  min-height: 44px; border-radius: var(--radius-ctl); border-color: #cbd5e1; background: #fff; font-size: 16px;
 }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--brand-500); outline-offset: 1px; border-color: var(--brand-500); }
+button:not(.bare), a.btn, .btn { min-height: 44px; border-radius: var(--radius-ctl); font-weight: 500; cursor: pointer; transition: filter .15s, background .15s; }
+button:not(.bare):active { filter: brightness(.92); }
+button:disabled { cursor: not-allowed; }
+.shadow { box-shadow: var(--shadow-card); }
+.rounded-xl { border-radius: var(--radius-card); }
+button.bg-green-600, button.bg-green-700, button.bg-blue-600 { background: linear-gradient(135deg, var(--brand-500), var(--brand-700)); }
+.text-xs { font-size: 0.8125rem; }
+.text-slate-500 { color: #55657d; }
+
+/* Thành phần dùng chung */
+.card { background: #fff; border-radius: var(--radius-card); box-shadow: var(--shadow-card); padding: 1rem; }
+.btn-primary { background: linear-gradient(135deg, var(--brand-500), var(--brand-700)); color: #fff; padding: 0 1.1rem; display: inline-flex; align-items: center; justify-content: center; gap: .4rem; }
+.btn-secondary { background: #fff; color: var(--navy-800); border: 1px solid #cbd5e1; padding: 0 1.1rem; display: inline-flex; align-items: center; justify-content: center; gap: .4rem; }
+.btn-danger { background: #dc2626; color: #fff; padding: 0 1.1rem; display: inline-flex; align-items: center; justify-content: center; }
+.badge { display: inline-flex; align-items: center; gap: .35rem; font-size: .8125rem; font-weight: 600; padding: .2rem .65rem; border-radius: 999px; }
+.badge::before { content: ""; width: .45rem; height: .45rem; border-radius: 50%; background: currentColor; }
+.field-label { display: block; font-size: .875rem; font-weight: 600; color: var(--navy-700); margin-bottom: .25rem; }
+.skeleton { background: linear-gradient(90deg, #e3eaf3 25%, #f1f5fa 50%, #e3eaf3 75%); background-size: 200% 100%; animation: sk 1.2s infinite; border-radius: var(--radius-card); }
+@keyframes sk { to { background-position: -200% 0; } }
+.toast-in { animation: toast .25s ease-out; }
+@keyframes toast { from { transform: translateY(-8px); opacity: 0; } }
+.tbl { width: 100%; border-collapse: collapse; font-size: .9375rem; }
+.tbl th { text-align: left; font-weight: 600; color: #55657d; background: #f2f6fb; padding: .6rem .75rem; }
+.tbl td { padding: .7rem .75rem; border-top: 1px solid #e5ebf3; }
+.tbl tr:hover td { background: #f8fbff; }
