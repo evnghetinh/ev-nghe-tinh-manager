@@ -8,6 +8,7 @@ import { useRole } from "@/lib/role";
 import Photos from "./photos";
 import PartPicker from "./part-picker";
 import Costs from "./costs";
+import EvInfo from "./ev";
 
 type Item = { id: string; kind: "part" | "labor"; name: string; qty: number; unit_price: number };
 type Part = { id: string; name: string; code: string | null; sale_price: number; stock: number };
@@ -231,6 +232,8 @@ export default function QuotePage() {
       )}
 
       {role === "chu" && <Costs orderId={id} revenue={partsTotal + laborTotal} partsCost={partsCost} />}
+
+      {order && <EvInfo key={String(done)} orderId={id} done={done} />}
 
       <Photos orderId={id} />
 

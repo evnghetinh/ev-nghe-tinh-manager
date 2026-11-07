@@ -13,6 +13,7 @@ const menu = [
   { href: "/phu-tung", label: "Phụ tùng" },
   { href: "/nhap-hang", label: "Nhập hàng", ownerOnly: true },
   { href: "/von", label: "Vốn", ownerOnly: true },
+  { href: "/cai-dat", label: "Cài đặt", ownerOnly: true },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -66,14 +67,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </button>
       </aside>
       <main className="flex-1 p-4 md:p-6 max-w-4xl w-full print:p-0 print:max-w-none"><RoleContext.Provider value={role}>{children}</RoleContext.Provider></main>
-      <nav className="md:hidden print:hidden fixed bottom-0 inset-x-0 bg-white border-t flex">
+      <nav className="md:hidden print:hidden fixed bottom-0 inset-x-0 bg-white border-t flex overflow-x-auto">
         {items.map((m) => (
           <Link key={m.href} href={m.href}
-            className={`flex-1 text-center py-3 text-sm ${pathname === m.href ? "text-green-700 font-semibold" : "text-slate-600"}`}>
+            className={`flex-1 shrink-0 whitespace-nowrap px-3 text-center py-3 text-sm ${pathname === m.href ? "text-green-700 font-semibold" : "text-slate-600"}`}>
             {m.label}
           </Link>
         ))}
-        <button onClick={() => supabase.auth.signOut()} className="flex-1 py-3 text-sm text-slate-500">Thoát</button>
+        <button onClick={() => supabase.auth.signOut()} className="flex-1 shrink-0 px-3 py-3 text-sm text-slate-500">Thoát</button>
       </nav>
     </div>
   );
