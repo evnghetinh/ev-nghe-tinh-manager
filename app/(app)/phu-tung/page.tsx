@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { money, digits } from "@/lib/format";
+import { money, money2, digits, decimalInput, toNum, qtyText, tonText, type DonVi } from "@/lib/format";
 import { useRole } from "@/lib/role";
 
 type Lech = { part_id: string; ten: string; ma: string | null; ton_hien_tai: number; tong_so: number; lech: number };
@@ -25,13 +25,13 @@ function Reconcile() {
         <button onClick={run} disabled={busy} className="border rounded-lg px-3 py-2 text-sm disabled:opacity-50">{busy ? "Đang đối chiếu..." : "Đối chiếu ngay"}</button>
       </div>
       {err && <p className="text-sm text-red-600">{err}</p>}
-      {rows && (rows.length === 0 ? <p className="text-sm text-green-700">Khớp: tồn của mọi phụ tùng bằng tổng sổ kho.</p> : (
+      {rows && (rows.length === 0 ? <p className="text-sm text-green-700">Khớp: tồn của mọi phụ tùng bằng tổng sổ kho (tính theo đơn vị bán).</p> : (
         <ul className="space-y-1">
           <li className="text-sm text-red-700">Có {rows.length} món lệch:</li>
           {rows.map((x) => (
             <li key={x.part_id} className="text-sm border rounded-lg p-2">
               <Link href={`/phu-tung/${x.part_id}`} className="text-blue-700 font-medium">{x.ten}{x.ma ? ` · ${x.ma}` : ""}</Link>
-              <div className="text-slate-600">Tồn hiện tại {x.ton_hien_tai} · Tổng sổ kho {x.tong_so} · Lệch {x.lech > 0 ? "+" : ""}{x.lech}</div>
+              <div className="text-slate-600">Tồn hiện tại {qtyText(x.ton_hien_tai)} · Tổng sổ kho {qtyText(x.tong_so)} · Lệch {x.lech > 0 ? "+" : ""}{qtyText(x.lech)}</div>
             </li>
           ))}
         </ul>
@@ -40,8 +40,8 @@ function Reconcile() {
   );
 }
 
-type Part = { id: string; name: string; code: string | null; cost_price?: number; sale_price: number; stock: number; is_hidden?: boolean };
-const empty = { name: "", code: "", cost_price: "", sale_price: "", stock: "" };
+type Part = { id: string; name: string; code: string | null; cost_price?: number; sale_price: number; stock: number; is_hidden?: boolean } & DonVi;
+const empty = { name: "", code: "", cost_price: "", sale_price: "", stock: "", don_vi_nhap: "cái", don_vi_ban: "cái", he_so: "1" };
 
 export default function PartsPage() {
   const isOwner = useRole() === "chu";
@@ -55,7 +55,7 @@ export default function PartsPage() {
   const load = useCallback(async () => {
     const { data, error } = await supabase.from("parts").select("*").order("name");
     if (error) return setError(error.message);
-    let rows = data as Part[];
+    let rows = (data as Part[]).map((p) => ({ ...p, stock: Number(p.stock), he_so: Number(p.he_so) }));
     if (isOwner) {
       const c = await supabase.from("part_costs").select("part_id, cost_price");
       if (c.error) return setError(c.error.message);
@@ -74,24 +74,31 @@ export default function PartsPage() {
       name: form.name.trim(), code: form.code.trim() || null,
       sale_price: Number(form.sale_price || 0),
     };
-    const initQty = Number(form.stock || 0);
+    const initQty = toNum(form.stock || "0");
+    const he = toNum(form.he_so || "1");
+    if (!editId) {
+      if (!form.don_vi_ban.trim() || !form.don_vi_nhap.trim()) return setError("Hãy nhập đơn vị nhập và đơn vị bán.");
+      if (!(he > 0)) return setError("Hệ số phải lớn hơn 0.");
+    }
     const res = editId
       ? await supabase.from("parts").update(row).eq("id", editId).select("id").single()
-      : await supabase.from("parts").insert({ ...row, stock: 0 }).select("id").single();
+      : await supabase.from("parts").insert({ ...row, stock: 0, don_vi_nhap: form.don_vi_nhap.trim(), don_vi_ban: form.don_vi_ban.trim(), he_so: he }).select("id").single();
     if (res.error) return setError(res.error.code === "23505" ? "Mã phụ tùng đã tồn tại." : res.error.message);
     if (!editId && initQty > 0) {
       const t = await supabase.rpc("dat_ton_dau", { p_part: res.data.id, p_qty: initQty });
       if (t.error) return setError(t.error.message);
     }
     if (isOwner) {
-      const c = await supabase.from("part_costs").upsert({ part_id: res.data.id, cost_price: Number(form.cost_price || 0) });
+      // Thêm mới: ô giá nhập là giá 1 đơn vị nhập -> giá vốn mỗi đơn vị bán = giá nhập / hệ số. Sửa: ô là giá vốn mỗi đơn vị bán.
+      const cost = editId ? toNum(form.cost_price || "0") : Math.round((toNum(form.cost_price || "0") / he) * 10000) / 10000;
+      const c = await supabase.from("part_costs").upsert({ part_id: res.data.id, cost_price: cost });
       if (c.error) return setError(c.error.message);
     }
     setForm(empty); setEditId(null); load();
   }
   function edit(p: Part) {
     setEditId(p.id);
-    setForm({ name: p.name, code: p.code ?? "", cost_price: String(p.cost_price ?? 0), sale_price: String(p.sale_price), stock: String(p.stock) });
+    setForm({ name: p.name, code: p.code ?? "", cost_price: String(p.cost_price ?? 0), sale_price: String(p.sale_price), stock: String(p.stock), don_vi_nhap: p.don_vi_nhap, don_vi_ban: p.don_vi_ban, he_so: String(p.he_so) });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   async function remove(p: Part) {
@@ -114,11 +121,21 @@ export default function PartsPage() {
       <form onSubmit={save} className="bg-white rounded-xl shadow p-4 grid gap-3 sm:grid-cols-2">
         <input required placeholder="Tên phụ tùng *" className={input} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <input placeholder="Mã phụ tùng" className={input} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
-        {isOwner && <input placeholder="Giá nhập (đ)" inputMode="numeric" className={input} value={form.cost_price} onChange={(e) => setForm({ ...form, cost_price: digits(e.target.value) })} />}
-        <input placeholder="Giá bán (đ)" inputMode="numeric" className={input} value={form.sale_price} onChange={(e) => setForm({ ...form, sale_price: digits(e.target.value) })} />
+        {!editId && (
+          <div className="sm:col-span-2 grid grid-cols-3 gap-2">
+            <label className="space-y-1"><span className="text-xs text-slate-500">Đơn vị nhập</span>
+              <input className={input} value={form.don_vi_nhap} onChange={(e) => setForm({ ...form, don_vi_nhap: e.target.value })} placeholder="can" /></label>
+            <label className="space-y-1"><span className="text-xs text-slate-500">Đơn vị bán</span>
+              <input className={input} value={form.don_vi_ban} onChange={(e) => setForm({ ...form, don_vi_ban: e.target.value })} placeholder="lít" /></label>
+            <label className="space-y-1"><span className="text-xs text-slate-500">Hệ số (1 {form.don_vi_nhap || "nhập"} = ? {form.don_vi_ban || "bán"})</span>
+              <input inputMode="decimal" className={input} value={form.he_so} onChange={(e) => setForm({ ...form, he_so: decimalInput(e.target.value) })} /></label>
+          </div>
+        )}
+        {isOwner && <input placeholder={editId ? `Giá vốn mỗi ${form.don_vi_ban} (đ)` : `Giá nhập 1 ${form.don_vi_nhap || "đơn vị nhập"} (đ)`} inputMode="decimal" className={input} value={form.cost_price} onChange={(e) => setForm({ ...form, cost_price: decimalInput(e.target.value, 4) })} />}
+        <input placeholder={`Giá bán mỗi ${form.don_vi_ban || "đơn vị"} (đ)`} inputMode="numeric" className={input} value={form.sale_price} onChange={(e) => setForm({ ...form, sale_price: digits(e.target.value) })} />
         {editId
-          ? <p className="text-sm text-slate-500 self-center">Tồn kho không sửa ở đây: dùng Nhập hàng hoặc Kiểm kê điều chỉnh (trong trang chi tiết).</p>
-          : <input placeholder="Số lượng tồn đầu" inputMode="numeric" className={input} value={form.stock} onChange={(e) => setForm({ ...form, stock: digits(e.target.value) })} />}
+          ? <p className="text-sm text-slate-500 self-center">Tồn kho không sửa ở đây: dùng Nhập hàng hoặc Kiểm kê điều chỉnh (trong trang chi tiết). Đổi đơn vị: vào chi tiết phụ tùng (chỉ Chủ).</p>
+          : <input placeholder={`Tồn đầu (tính theo ${form.don_vi_ban || "đơn vị bán"})`} inputMode="decimal" className={input} value={form.stock} onChange={(e) => setForm({ ...form, stock: decimalInput(e.target.value) })} />}
         <div className="flex gap-2">
           <button className="bg-green-600 text-white rounded-lg px-4 py-2">{editId ? "Lưu thay đổi" : "Thêm phụ tùng"}</button>
           {editId && <button type="button" onClick={() => { setEditId(null); setForm(empty); }} className="border rounded-lg px-4 py-2">Hủy</button>}
@@ -134,9 +151,9 @@ export default function PartsPage() {
           <li key={p.id} className="bg-white rounded-xl shadow p-3 space-y-1">
             <div className="flex justify-between gap-2">
               <Link href={`/phu-tung/${p.id}`} className="font-medium text-blue-700">{p.name}{p.code ? <span className="text-slate-500 font-normal"> · {p.code}</span> : null}{p.is_hidden ? <span className="ml-1 text-xs text-amber-700 font-normal">(đã ẩn)</span> : null}</Link>
-              <span className={`text-xs px-2 py-1 rounded-full shrink-0 ${p.stock > 0 ? "bg-green-100 text-green-800" : "bg-red-100 text-red-700"}`}>Tồn: {p.stock}</span>
+              <span className={`text-xs px-2 py-1 rounded-full text-right max-w-[55%] ${p.stock > 0 ? "bg-green-100 text-green-800" : "bg-red-100 text-red-700"}`}>Tồn: {tonText(p.stock, p)}</span>
             </div>
-            <div className="text-sm text-slate-500">{isOwner ? `Nhập ${money(p.cost_price ?? 0)} · ` : ""}Bán {money(p.sale_price)}</div>
+            <div className="text-sm text-slate-500">{isOwner ? `Vốn ${money2(p.cost_price ?? 0)}/${p.don_vi_ban} · ` : ""}Bán {money(p.sale_price)}/{p.don_vi_ban}</div>
             <div className="flex gap-4 text-sm">
               <Link href={`/phu-tung/${p.id}`} className="text-blue-600">Lịch sử</Link>
               <button onClick={() => edit(p)} className="text-blue-600">Sửa</button>

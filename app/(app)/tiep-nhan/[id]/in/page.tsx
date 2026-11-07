@@ -3,10 +3,11 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { money } from "@/lib/format";
+import { money, qtyText } from "@/lib/format";
 import { GARA } from "@/lib/gara";
 
-type Item = { id: string; kind: "part" | "labor"; name: string; qty: number; unit_price: number };
+type Item = { id: string; kind: "part" | "labor"; name: string; qty: number; unit_price: number; don_vi: string | null };
+const lineTotal = (i: { qty: number; unit_price: number }) => Math.round(i.qty * i.unit_price);
 type Dtc = { ma: string; ghi_chu: string | null; sau_sua: string | null };
 type Kt = { ten: string; ket_qua: "dat" | "khong_dat" | null; ghi_chu: string | null; nguoi_kt_ten: string | null; kt_luc: string | null };
 type Order = { soc_nhan: number | null; soh_nhan: number | null; pin_ghi_chu: string | null; nguyen_nhan: string | null; tiep_nhan_ten: string | null; kt_bo_qua_ly_do: string | null; code: number; odometer: number | null; issue: string; created_at: string; vehicles: { plate: string } | null; customers: { name: string; phone: string | null; address: string | null } | null };
@@ -40,7 +41,7 @@ export default function PrintQuote() {
     })();
   }, [id]);
 
-  const total = items.reduce((s, i) => s + i.qty * i.unit_price, 0);
+  const total = items.reduce((s, i) => s + lineTotal(i), 0);
   const date = order ? new Date(order.created_at).toLocaleDateString("vi-VN") : "";
   const rows = [...items.filter((i) => i.kind === "part"), ...items.filter((i) => i.kind === "labor")];
 
@@ -99,8 +100,8 @@ export default function PrintQuote() {
             <table className="w-full border-collapse">
               <thead>
                 <tr className="bg-slate-100 print:bg-transparent">
-                  {["STT", "Nội dung", "SL", "Đơn giá", "Thành tiền"].map((h, k) => (
-                    <th key={h} className={`border border-black px-2 py-1 ${k > 1 ? "text-right" : "text-left"}`}>{h}</th>
+                  {["STT", "Nội dung", "SL", "ĐVT", "Đơn giá", "Thành tiền"].map((h, k) => (
+                    <th key={h} className={`border border-black px-2 py-1 ${k > 1 && k !== 3 ? "text-right" : "text-left"}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -109,13 +110,14 @@ export default function PrintQuote() {
                   <tr key={it.id}>
                     <td className="border border-black px-2 py-1">{n + 1}</td>
                     <td className="border border-black px-2 py-1">{it.name}{it.kind === "labor" ? " (công)" : ""}</td>
-                    <td className="border border-black px-2 py-1 text-right">{it.qty}</td>
+                    <td className="border border-black px-2 py-1 text-right whitespace-nowrap">{qtyText(it.qty)}</td>
+                    <td className="border border-black px-2 py-1 whitespace-nowrap">{it.kind === "part" ? it.don_vi ?? "cái" : ""}</td>
                     <td className="border border-black px-2 py-1 text-right whitespace-nowrap">{money(it.unit_price)}</td>
-                    <td className="border border-black px-2 py-1 text-right whitespace-nowrap">{money(it.qty * it.unit_price)}</td>
+                    <td className="border border-black px-2 py-1 text-right whitespace-nowrap">{money(lineTotal(it))}</td>
                   </tr>
                 ))}
                 <tr className="font-bold">
-                  <td colSpan={4} className="border border-black px-2 py-1 text-right">Tổng cộng</td>
+                  <td colSpan={5} className="border border-black px-2 py-1 text-right">Tổng cộng</td>
                   <td className="border border-black px-2 py-1 text-right whitespace-nowrap">{money(total)}</td>
                 </tr>
               </tbody>

@@ -2,15 +2,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
-import { money } from "@/lib/format";
+import { money, money2, qtyText } from "@/lib/format";
 import { useRole } from "@/lib/role";
 
-type Field = "name" | "code" | "qty" | "cost" | "sale";
+type Field = "name" | "code" | "qty" | "cost" | "sale" | "unit";
 const FIELDS: { key: Field; label: string; aliases: string[] }[] = [
   { key: "name", label: "Tên hàng", aliases: ["ten hang", "ten phu tung", "ten vat tu", "ten san pham", "ten", "san pham", "mat hang", "hang hoa", "name", "item", "product", "description", "part name"] },
   { key: "code", label: "Mã phụ tùng", aliases: ["ma phu tung", "ma hang", "ma vat tu", "ma sp", "ma san pham", "ma", "sku", "code", "part number", "part no", "part code", "partno"] },
   { key: "qty", label: "Số lượng", aliases: ["so luong", "sl", "luong", "qty", "quantity", "amount"] },
   { key: "cost", label: "Giá nhập", aliases: ["gia nhap", "don gia nhap", "gia von", "don gia", "gia mua", "cost", "cost price", "unit cost", "purchase price", "buy price", "price"] },
+  { key: "unit", label: "Đơn vị", aliases: ["don vi", "don vi tinh", "dvt", "unit", "uom"] },
   { key: "sale", label: "Giá bán", aliases: ["gia ban", "gia ban le", "don gia ban", "sale price", "selling price", "retail price", "sell price"] },
 ];
 const norm = (s: unknown) =>
@@ -18,11 +19,11 @@ const norm = (s: unknown) =>
 
 type Mapping = Record<Field, number>; // -1 = không dùng
 type Raw = { headers: string[]; body: unknown[][] };
-type Row = { id: number; name: string; code: string; qty: string; cost: string; sale: string };
-type Part = { id: string; name: string; code: string | null };
+type Row = { id: number; name: string; code: string; qty: string; cost: string; sale: string; unitText: string; unit: "ban" | "nhap"; dvn: string; dvb: string; he: string };
+type Part = { id: string; name: string; code: string | null; don_vi_nhap: string; don_vi_ban: string; he_so: number };
 type Batch = { id: string; imported_on: string; supplier: string | null; note: string | null; item_count: number; total: number; created_by_name: string | null; da_huy: boolean; huy_ly_do: string | null; huy_boi: string | null; huy_luc: string | null };
 type Log = { id: string; action: string; noi_dung: string | null; created_by_name: string | null; created_at: string };
-type BatchItem = { id: string; part_id: string | null; name: string; code: string | null; qty: number; cost_price: number; sale_price: number | null; is_new: boolean };
+type BatchItem = { id: string; part_id: string | null; name: string; code: string | null; qty: number; cost_price: number; sale_price: number | null; is_new: boolean; don_vi: string; so_luong_goc: number | null; don_vi_goc: string | null; gia_nhap_goc: number | null; he_so: number | null };
 
 function parseNum(v: string): number | null {
   const s = v.replace(/[^\d.,-]/g, "");
@@ -39,11 +40,11 @@ function parseNum(v: string): number | null {
 const cellText = (v: unknown) => (v === null || v === undefined ? "" : String(v).trim());
 
 function detect(headers: string[]): Mapping {
-  const m: Mapping = { name: -1, code: -1, qty: -1, cost: -1, sale: -1 };
+  const m: Mapping = { name: -1, code: -1, qty: -1, cost: -1, sale: -1, unit: -1 };
   const used = new Set<number>();
   const hs = headers.map(norm);
   // khớp chính xác trước, rồi mới khớp "chứa"; Giá bán xét trước Giá nhập để "đơn giá" không bị nhầm
-  const order: Field[] = ["code", "sale", "qty", "name", "cost"];
+  const order: Field[] = ["code", "sale", "qty", "unit", "name", "cost"];
   for (const pass of [0, 1]) {
     for (const k of order) {
       if (m[k] >= 0) continue;
@@ -59,7 +60,7 @@ export default function ImportPage() {
   const isOwner = useRole() === "chu";
   const [raw, setRaw] = useState<Raw | null>(null);
   const [fileName, setFileName] = useState("");
-  const [map, setMap] = useState<Mapping>({ name: -1, code: -1, qty: -1, cost: -1, sale: -1 });
+  const [map, setMap] = useState<Mapping>({ name: -1, code: -1, qty: -1, cost: -1, sale: -1, unit: -1 });
   const [rows, setRows] = useState<Row[]>([]);
   const [parts, setParts] = useState<Part[]>([]);
   const [supplier, setSupplier] = useState("");
@@ -78,12 +79,12 @@ export default function ImportPage() {
 
   const loadAll = useCallback(async () => {
     const [p, h] = await Promise.all([
-      supabase.from("parts").select("id, name, code"),
+      supabase.from("parts").select("id, name, code, don_vi_nhap, don_vi_ban, he_so"),
       supabase.from("stock_imports").select("*").order("imported_on", { ascending: false }).order("created_at", { ascending: false }).limit(100),
     ]);
     if (p.error) return setError(p.error.message);
     if (h.error) return setError("Không đọc được lịch sử (đã chạy giai-doan-8.sql chưa?): " + h.error.message);
-    setParts(p.data as Part[]);
+    setParts((p.data as Part[]).map((x) => ({ ...x, he_so: Number(x.he_so) })));
     setHistory(h.data as Batch[]);
   }, []);
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -109,7 +110,14 @@ export default function ImportPage() {
 
   function buildRows(r: Raw, m: Mapping): Row[] {
     const g = (row: unknown[], k: Field) => (m[k] >= 0 ? cellText(row[m[k]]) : "");
-    return r.body.map((row, i) => ({ id: i, name: g(row, "name"), code: g(row, "code"), qty: g(row, "qty"), cost: g(row, "cost"), sale: g(row, "sale") }));
+    return r.body.map((row, i) => {
+      const code = g(row, "code").trim().toLowerCase(), name = g(row, "name").trim().toLowerCase(), unitText = g(row, "unit");
+      const ex = code ? parts.find((p) => p.code?.toLowerCase() === code) : parts.find((p) => !p.code && p.name.trim().toLowerCase() === name);
+      // Cột đơn vị trong file trùng đơn vị nhập (mà khác đơn vị bán) của món đã có -> hiểu là nhập theo đơn vị nhập
+      const nhap = !!ex && !!unitText && norm(unitText) === norm(ex.don_vi_nhap) && norm(ex.don_vi_nhap) !== norm(ex.don_vi_ban);
+      return { id: i, name: g(row, "name"), code: g(row, "code"), qty: g(row, "qty"), cost: g(row, "cost"), sale: g(row, "sale"),
+        unitText, unit: nhap ? "nhap" : "ban", dvn: unitText || "cái", dvb: unitText || "cái", he: "1" } as Row;
+    });
   }
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -150,7 +158,7 @@ export default function ImportPage() {
     const m = { ...map, [k]: v };
     setMap(m); setRows(buildRows(raw, m));
   }
-  const setCell = (id: number, k: Field, v: string) => setRows((rs) => rs.map((r) => (r.id === id ? { ...r, [k]: v } : r)));
+  const setCell = (id: number, k: Exclude<keyof Row, "id" | "unit"> | "unit", v: string) => setRows((rs) => rs.map((r) => (r.id === id ? { ...r, [k]: v } : r)));
   const del = (id: number) => setRows((rs) => rs.filter((r) => r.id !== id));
   function reset() { setRaw(null); setRows([]); setFileName(""); setError(""); }
 
@@ -165,12 +173,20 @@ export default function ImportPage() {
       const qty = parseNum(r.qty), cost = parseNum(r.cost), sale = r.sale.trim() ? parseNum(r.sale) : null;
       if (!r.name.trim()) errs.push("Thiếu tên hàng");
       if (qty === null || qty <= 0) errs.push("Số lượng phải lớn hơn 0");
+      else if (Math.round(qty * 1000) / 1000 !== qty) errs.push("Số lượng tối đa 3 chữ số thập phân");
       if (cost === null || cost < 0) errs.push("Thiếu hoặc sai giá nhập");
       if (r.sale.trim() && (sale === null || sale < 0)) errs.push("Giá bán không hợp lệ");
       if (code && (codeCount.get(code) ?? 0) > 1) errs.push("Trùng mã trong file — bỏ bớt dòng hoặc sửa mã");
       if (!code) warns.push("Không có mã (khớp theo tên)");
-      const exist = code ? byCode.get(code) : byName.get(r.name.trim().toLowerCase());
-      return { errs, warns, qty, cost, sale, exist: exist ?? null };
+      const exist = (code ? byCode.get(code) : byName.get(r.name.trim().toLowerCase())) ?? null;
+      const he = exist ? exist.he_so : parseNum(r.he) ?? 0;
+      if (!exist && (!(he > 0) || Math.round(he * 1000) / 1000 !== he)) errs.push("Hệ số quy đổi phải lớn hơn 0 (tối đa 3 số lẻ)");
+      if (!exist && (!r.dvn.trim() || !r.dvb.trim())) errs.push("Thiếu tên đơn vị nhập / đơn vị bán");
+      if (exist && r.unitText.trim() && ![exist.don_vi_nhap, exist.don_vi_ban].some((u) => norm(u) === norm(r.unitText))) warns.push(`Đơn vị "${r.unitText}" trong file không trùng ${exist.don_vi_nhap}/${exist.don_vi_ban} của món này — đang hiểu theo bảng chọn bên dưới`);
+      const dvNhap = exist ? exist.don_vi_nhap : r.dvn.trim(), dvBan = exist ? exist.don_vi_ban : r.dvb.trim();
+      const qtyBan = qty !== null && he > 0 ? (r.unit === "nhap" ? Math.round(qty * he * 1000) / 1000 : qty) : null;
+      const costBan = cost !== null && he > 0 ? (r.unit === "nhap" ? Math.round((cost / he) * 10000) / 10000 : cost) : null;
+      return { errs, warns, qty, cost, sale, exist, he, dvNhap, dvBan, qtyBan, costBan };
     });
   }, [rows, parts]);
 
@@ -185,7 +201,8 @@ export default function ImportPage() {
     setBusy(true);
     const items = rows.map((r, i) => ({
       name: r.name.trim(), code: r.code.trim() || null, qty: checks[i].qty, cost_price: checks[i].cost,
-      sale_price: checks[i].sale,
+      sale_price: checks[i].sale, don_vi: r.unit,
+      ...(checks[i].exist ? {} : { don_vi_nhap: r.dvn.trim(), don_vi_ban: r.dvb.trim(), he_so: checks[i].he }),
     }));
     const { error } = await supabase.rpc("nhap_hang", { p_supplier: supplier, p_date: date, p_note: note, p_items: items });
     setBusy(false);
@@ -229,7 +246,8 @@ export default function ImportPage() {
     if (redo) {
       setSupplier(b.supplier ?? ""); setNote(b.note ?? ""); setDate(b.imported_on);
       setRaw({ headers: [], body: [] }); setFileName("");
-      setRows(openItems.map((it, i) => ({ id: i, name: it.name, code: it.code ?? "", qty: String(it.qty), cost: String(it.cost_price), sale: it.sale_price === null ? "" : String(it.sale_price) })));
+      setRows(openItems.map((it, i) => ({ id: i, name: it.name, code: it.code ?? "", qty: String(it.qty), cost: String(it.cost_price), sale: it.sale_price === null ? "" : String(it.sale_price),
+        unitText: "", unit: "ban" as const, dvn: it.don_vi_goc && it.he_so && it.he_so !== 1 && it.don_vi_goc !== it.don_vi ? it.don_vi_goc : it.don_vi, dvb: it.don_vi, he: String(it.he_so ?? 1) })));
       setOpen(null);
       setOk("Đã hủy phiếu cũ. Sửa lại dữ liệu bên dưới rồi bấm Xác nhận nhập hàng." + warn);
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -300,17 +318,32 @@ export default function ImportPage() {
               return (
                 <div key={r.id} className={`bg-white rounded-xl shadow p-3 space-y-2 border-l-4 ${c.errs.length ? "border-red-500" : c.exist ? "border-blue-400" : "border-green-500"}`}>
                   <div className="flex justify-between items-center gap-2 text-xs">
-                    <span className="text-slate-500">#{i + 1} · {c.exist ? `Đã có: tồn ${"+"}${c.qty ?? "?"}, cập nhật giá nhập` : "Món mới"}</span>
+                    <span className="text-slate-500">#{i + 1} · {c.exist ? `Đã có (${c.exist.don_vi_ban}): tồn +${c.qtyBan !== null ? qtyText(c.qtyBan) : "?"} ${c.dvBan}, cập nhật giá nhập` : "Món mới"}</span>
                     <button onClick={() => del(r.id)} className="text-red-600 text-sm">Bỏ dòng</button>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
                     <input className={`${input} col-span-2 sm:col-span-3`} placeholder="Tên hàng" value={r.name} onChange={(e) => setCell(r.id, "name", e.target.value)} />
                     <input className={`${input} col-span-2 sm:col-span-3`} placeholder="Mã" value={r.code} onChange={(e) => setCell(r.id, "code", e.target.value)} />
-                    <label className="space-y-1"><span className={lbl}>Số lượng</span><input inputMode="decimal" className={input} value={r.qty} onChange={(e) => setCell(r.id, "qty", e.target.value)} /></label>
-                    <label className="space-y-1 sm:col-span-2"><span className={lbl}>Giá nhập</span><input inputMode="numeric" className={input} value={r.cost} onChange={(e) => setCell(r.id, "cost", e.target.value)} /></label>
-                    <label className="space-y-1 sm:col-span-2"><span className={lbl}>Giá bán</span><input inputMode="numeric" className={input} value={r.sale} onChange={(e) => setCell(r.id, "sale", e.target.value)} /></label>
+                    {!c.exist && <>
+                      <label className="space-y-1"><span className={lbl}>Đơn vị nhập</span><input className={input} placeholder="can" value={r.dvn} onChange={(e) => setCell(r.id, "dvn", e.target.value)} /></label>
+                      <label className="space-y-1"><span className={lbl}>Đơn vị bán</span><input className={input} placeholder="lít" value={r.dvb} onChange={(e) => setCell(r.id, "dvb", e.target.value)} /></label>
+                      <label className="space-y-1 col-span-2 sm:col-span-2"><span className={lbl}>Hệ số: 1 {r.dvn || "nhập"} = ? {r.dvb || "bán"}</span><input inputMode="decimal" className={input} value={r.he} onChange={(e) => setCell(r.id, "he", e.target.value)} /></label>
+                    </>}
+                    {(!c.exist || c.dvNhap !== c.dvBan) && (
+                      <label className="space-y-1 col-span-2 sm:col-span-3"><span className={lbl}>Nhập theo đơn vị</span>
+                        <select className={input} value={r.unit} onChange={(e) => setCell(r.id, "unit", e.target.value)}>
+                          <option value="ban">Đơn vị bán ({c.dvBan || "?"})</option>
+                          <option value="nhap">Đơn vị nhập ({c.dvNhap || "?"})</option>
+                        </select></label>
+                    )}
+                    <label className="space-y-1"><span className={lbl}>Số lượng{r.unit === "nhap" ? ` (${c.dvNhap})` : ` (${c.dvBan})`}</span><input inputMode="decimal" className={input} value={r.qty} onChange={(e) => setCell(r.id, "qty", e.target.value)} /></label>
+                    <label className="space-y-1 sm:col-span-2"><span className={lbl}>Giá nhập mỗi {r.unit === "nhap" ? c.dvNhap : c.dvBan}</span><input inputMode="decimal" className={input} value={r.cost} onChange={(e) => setCell(r.id, "cost", e.target.value)} /></label>
+                    <label className="space-y-1 sm:col-span-2"><span className={lbl}>Giá bán mỗi {c.dvBan}</span><input inputMode="numeric" className={input} value={r.sale} onChange={(e) => setCell(r.id, "sale", e.target.value)} /></label>
                     <div className="text-sm self-end pb-2 text-slate-600">{c.qty && c.cost ? money(Math.round(c.qty * c.cost)) : ""}</div>
                   </div>
+                  {c.qtyBan !== null && c.costBan !== null && c.he > 0 && (r.unit === "nhap" || c.he !== 1) && (
+                    <p className="text-xs text-slate-600">→ Tồn cộng thêm <b>{qtyText(c.qtyBan)} {c.dvBan}</b> · giá vốn mỗi {c.dvBan}: <b>{money2(c.costBan)}</b></p>
+                  )}
                   {c.errs.map((m) => <p key={m} className="text-xs text-red-600">⚠ {m}</p>)}
                   {c.warns.map((m) => <p key={m} className="text-xs text-amber-600">• {m}</p>)}
                 </div>
@@ -352,9 +385,12 @@ export default function ImportPage() {
                     <li key={it.id} className="py-1.5 space-y-0.5">
                       <div className="flex justify-between gap-2">
                         <span>{it.name}{it.code ? <span className="text-slate-500"> · {it.code}</span> : <span className="text-slate-400"> · không mã</span>}{it.is_new ? <span className="ml-1 text-xs text-green-700">(mới)</span> : null}</span>
-                        <b className="shrink-0">{money(Math.round(it.qty * it.cost_price))}</b>
+                        <b className="shrink-0">{money(Math.round(it.so_luong_goc !== null && it.gia_nhap_goc !== null ? it.so_luong_goc * it.gia_nhap_goc : it.qty * it.cost_price))}</b>
                       </div>
-                      <div className="text-xs text-slate-600">SL {it.qty} × giá nhập {money(it.cost_price)}</div>
+                      <div className="text-xs text-slate-600">
+                        SL {qtyText(it.so_luong_goc ?? it.qty)} {it.don_vi_goc ?? it.don_vi} × giá nhập {money2(it.gia_nhap_goc ?? it.cost_price)}
+                        {it.so_luong_goc !== null && it.so_luong_goc !== it.qty ? ` → tồn +${qtyText(it.qty)} ${it.don_vi} (vốn ${money2(it.cost_price)}/${it.don_vi})` : ""}
+                      </div>
                       {b.da_huy && it.is_new && hideable.has(it.part_id ?? "") && (
                         <button onClick={() => hidePart(it.part_id)} className="text-xs text-amber-700 border border-amber-300 rounded px-2 py-1">Ẩn phụ tùng này (tồn 0, chưa dùng)</button>
                       )}

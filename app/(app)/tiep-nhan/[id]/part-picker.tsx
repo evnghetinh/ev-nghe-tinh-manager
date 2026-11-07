@@ -1,8 +1,8 @@
 "use client";
 import { useMemo, useState } from "react";
-import { money } from "@/lib/format";
+import { money, tonText, type DonVi } from "@/lib/format";
 
-type P = { id: string; name: string; code: string | null; sale_price: number; stock: number };
+type P = { id: string; name: string; code: string | null; sale_price: number; stock: number } & DonVi;
 
 const norm = (s: string) =>
   s.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase();
@@ -55,7 +55,7 @@ export default function PartPicker({ parts, value, onChange, className }: { part
               className={`px-3 py-2 text-sm cursor-pointer border-b last:border-0 ${i === hi ? "bg-green-50" : ""}`}
             >
               <div className="font-medium">{p.name}{p.code ? <span className="text-slate-500 font-normal"> ({p.code})</span> : null}</div>
-              <div className="text-xs text-slate-600">Giá bán {money(p.sale_price)} · tồn {p.stock}</div>
+              <div className="text-xs text-slate-600">Giá bán {money(p.sale_price)}/{p.don_vi_ban} · tồn {tonText(p.stock, p)}</div>
             </li>
           ))}
         </ul>

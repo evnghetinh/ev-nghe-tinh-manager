@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { money } from "@/lib/format";
+import { money, tonText } from "@/lib/format";
 import { useRole } from "@/lib/role";
 
 type Cost = { cost_price: number };
@@ -15,7 +15,7 @@ type Bd = { rev: number; parts: number; vat_tu: number; thue_ngoai: number; khac
 const emptyBd = (): Bd => ({ rev: 0, parts: 0, vat_tu: 0, thue_ngoai: 0, khac: 0 });
 const profitOf = (b: Bd) => b.rev - b.parts - b.vat_tu - b.thue_ngoai - b.khac;
 const rows: [string, keyof Bd][] = [["Doanh thu", "rev"], ["Giá vốn phụ tùng", "parts"], ["Chi phí vật tư tiêu hao", "vat_tu"], ["Chi phí thuê ngoài", "thue_ngoai"], ["Chi phí khác", "khac"]];
-type Low = { id: string; name: string; stock: number; min_stock: number };
+type Low = { id: string; name: string; stock: number; min_stock: number; don_vi_nhap: string; don_vi_ban: string; he_so: number };
 
 export default function Dashboard() {
   const role = useRole();
@@ -32,7 +32,7 @@ export default function Dashboard() {
       const o = await supabase.from("repair_orders").select("*", { count: "exact", head: true }).in("status", ["Chờ xử lý", "Đang sửa"]);
       const p = await supabase.from("repair_orders").select("paid_at, repair_items(kind, qty, unit_price, repair_item_costs(cost_price)), repair_costs(kind, amount)")
         .eq("stock_deducted", true).gte("paid_at", first).lte("paid_at", today);
-      const pt = await supabase.from("parts").select("id, name, stock, min_stock").eq("is_hidden", false).order("stock");
+      const pt = await supabase.from("parts").select("id, name, stock, min_stock, don_vi_nhap, don_vi_ban, he_so").eq("is_hidden", false).order("stock");
       if (p.error || pt.error) setError((p.error ?? pt.error)!.message);
       const day = emptyBd(), mon = emptyBd();
       for (const r of (p.data ?? []) as unknown as Paid[]) {
@@ -46,7 +46,7 @@ export default function Dashboard() {
       }
       setOpen(o.count ?? 0);
       setBd([day, mon]);
-      setLow(((pt.data ?? []) as Low[]).filter((x) => x.stock <= x.min_stock));
+      setLow(((pt.data ?? []) as Low[]).filter((x) => Number(x.stock) <= Number(x.min_stock)));
     })();
   }, [role]);
 
@@ -92,7 +92,7 @@ export default function Dashboard() {
         {low.length === 0 ? <p className="text-sm text-slate-500">Không có.</p> : (
           <ul className="divide-y">
             {low.map((x) => (
-              <li key={x.id} className="py-2 flex justify-between text-sm"><span>{x.name}</span><span className="text-red-700 font-medium">Còn {x.stock}</span></li>
+              <li key={x.id} className="py-2 flex justify-between text-sm"><span>{x.name}</span><span className="text-red-700 font-medium">Còn {tonText(Number(x.stock), { ...x, he_so: Number(x.he_so) })}</span></li>
             ))}
           </ul>
         )}
