@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { EmptyState, Icon, LoadingBlock, PageTitle, Toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { money, money2, digits, decimalInput, toNum, qtyText, tonText, type DonVi } from "@/lib/format";
 import { useRole } from "@/lib/role";
@@ -19,17 +20,17 @@ function Reconcile() {
     setRows(r.data as Lech[]);
   }
   return (
-    <div className="bg-white rounded-xl shadow p-4 space-y-2">
+    <div className="card space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <b>Đối chiếu tồn kho</b>
-        <button onClick={run} disabled={busy} className="border rounded-lg px-3 py-2 text-sm disabled:opacity-50">{busy ? "Đang đối chiếu..." : "Đối chiếu ngay"}</button>
+        <b className="text-navy-900">Đối chiếu tồn kho</b>
+        <button onClick={run} disabled={busy} className="btn-secondary text-sm disabled:opacity-50">{busy ? "Đang đối chiếu..." : "Đối chiếu ngay"}</button>
       </div>
-      {err && <p className="text-sm text-red-600">{err}</p>}
+      <Toast text={err} onClose={() => setErr("")} />
       {rows && (rows.length === 0 ? <p className="text-sm text-green-700">Khớp: tồn của mọi phụ tùng bằng tổng sổ kho (tính theo đơn vị bán).</p> : (
         <ul className="space-y-1">
           <li className="text-sm text-red-700">Có {rows.length} món lệch:</li>
           {rows.map((x) => (
-            <li key={x.part_id} className="text-sm border rounded-lg p-2">
+            <li key={x.part_id} className="text-sm border border-slate-200 rounded-xl p-2">
               <Link href={`/phu-tung/${x.part_id}`} className="text-blue-700 font-medium">{x.ten}{x.ma ? ` · ${x.ma}` : ""}</Link>
               <div className="text-slate-600">Tồn hiện tại {qtyText(x.ton_hien_tai)} · Tổng sổ kho {qtyText(x.tong_so)} · Lệch {x.lech > 0 ? "+" : ""}{qtyText(x.lech)}</div>
             </li>
@@ -51,6 +52,7 @@ export default function PartsPage() {
   const [q, setQ] = useState("");
   const [showHidden, setShowHidden] = useState(false);
   const [error, setError] = useState("");
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     const { data, error } = await supabase.from("parts").select("*").order("name");
@@ -63,6 +65,7 @@ export default function PartsPage() {
       rows = rows.map((p) => ({ ...p, cost_price: m.get(p.id) ?? 0 }));
     }
     setList(rows);
+    setLoaded(true);
   }, [isOwner]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
@@ -112,13 +115,13 @@ export default function PartsPage() {
     if (error) setError(error.message); else load();
   }
   const shown = list.filter((p) => (showHidden || !p.is_hidden) && (!q || `${p.name} ${p.code ?? ""}`.toLowerCase().includes(q.toLowerCase())));
-  const input = "w-full border rounded-lg px-3 py-2";
+  const input = "w-full border px-3 py-2";
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold">Phụ tùng</h1>
+      <PageTitle icon={<Icon name="box" />} title="Phụ tùng" />
       {isOwner && <Reconcile />}
-      <form onSubmit={save} className="bg-white rounded-xl shadow p-4 grid gap-3 sm:grid-cols-2">
+      <form onSubmit={save} className="card grid gap-3 sm:grid-cols-2">
         <input required placeholder="Tên phụ tùng *" className={input} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <input placeholder="Mã phụ tùng" className={input} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
         {!editId && (
@@ -137,32 +140,33 @@ export default function PartsPage() {
           ? <p className="text-sm text-slate-500 self-center">Tồn kho không sửa ở đây: dùng Nhập hàng hoặc Kiểm kê điều chỉnh (trong trang chi tiết). Đổi đơn vị: vào chi tiết phụ tùng (chỉ Chủ).</p>
           : <input placeholder={`Tồn đầu (tính theo ${form.don_vi_ban || "đơn vị bán"})`} inputMode="decimal" className={input} value={form.stock} onChange={(e) => setForm({ ...form, stock: decimalInput(e.target.value) })} />}
         <div className="flex gap-2">
-          <button className="bg-green-600 text-white rounded-lg px-4 py-2">{editId ? "Lưu thay đổi" : "Thêm phụ tùng"}</button>
-          {editId && <button type="button" onClick={() => { setEditId(null); setForm(empty); }} className="border rounded-lg px-4 py-2">Hủy</button>}
+          <button className="btn-primary">{editId ? "Lưu thay đổi" : "Thêm phụ tùng"}</button>
+          {editId && <button type="button" onClick={() => { setEditId(null); setForm(empty); }} className="btn-secondary">Hủy</button>}
         </div>
       </form>
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      <Toast text={error} onClose={() => setError("")} />
       <input placeholder="Tìm theo tên hoặc mã..." className={input} value={q} onChange={(e) => setQ(e.target.value)} />
       {isOwner && list.some((p) => p.is_hidden) && (
         <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} /> Hiện cả phụ tùng đã ẩn</label>
       )}
       <ul className="space-y-2">
         {shown.map((p) => (
-          <li key={p.id} className="bg-white rounded-xl shadow p-3 space-y-1">
+          <li key={p.id} className="card space-y-1">
             <div className="flex justify-between gap-2">
-              <Link href={`/phu-tung/${p.id}`} className="font-medium text-blue-700">{p.name}{p.code ? <span className="text-slate-500 font-normal"> · {p.code}</span> : null}{p.is_hidden ? <span className="ml-1 text-xs text-amber-700 font-normal">(đã ẩn)</span> : null}</Link>
-              <span className={`text-xs px-2 py-1 rounded-full text-right max-w-[55%] ${p.stock > 0 ? "bg-green-100 text-green-800" : "bg-red-100 text-red-700"}`}>Tồn: {tonText(p.stock, p)}</span>
+              <Link href={`/phu-tung/${p.id}`} className="font-semibold text-green-700">{p.name}{p.code ? <span className="text-slate-500 font-normal"> · {p.code}</span> : null}{p.is_hidden ? <span className="ml-1 text-xs text-amber-700 font-normal">(đã ẩn)</span> : null}</Link>
+              <span className={`badge text-right max-w-[55%] shrink-0 ${p.stock > 0 ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-700"}`}>Tồn: {tonText(p.stock, p)}</span>
             </div>
             <div className="text-sm text-slate-500">{isOwner ? `Vốn ${money2(p.cost_price ?? 0)}/${p.don_vi_ban} · ` : ""}Bán {money(p.sale_price)}/{p.don_vi_ban}</div>
-            <div className="flex gap-4 text-sm">
-              <Link href={`/phu-tung/${p.id}`} className="text-blue-600">Lịch sử</Link>
-              <button onClick={() => edit(p)} className="text-blue-600">Sửa</button>
-              <button onClick={() => remove(p)} className="text-red-600">Xóa</button>
-              {isOwner && p.is_hidden && <button onClick={() => unhide(p)} className="text-amber-700">Bỏ ẩn</button>}
+            <div className="flex gap-1 text-sm flex-wrap">
+              <Link href={`/phu-tung/${p.id}`} className="btn-secondary text-sm !px-3">Lịch sử</Link>
+              <button onClick={() => edit(p)} className="btn-secondary text-sm !px-3">Sửa</button>
+              <button onClick={() => remove(p)} className="bare text-red-600 px-3 min-h-11">Xóa</button>
+              {isOwner && p.is_hidden && <button onClick={() => unhide(p)} className="bare text-amber-700 px-3 min-h-11">Bỏ ẩn</button>}
             </div>
           </li>
         ))}
-        {shown.length === 0 && <li className="text-slate-500 text-sm">Chưa có phụ tùng.</li>}
+        {!loaded && <li><LoadingBlock rows={3} /></li>}
+        {loaded && shown.length === 0 && <li><EmptyState icon={<Icon name="box" />} text={q ? "Không có phụ tùng nào khớp từ khóa." : "Chưa có phụ tùng. Nhập form phía trên để thêm."} /></li>}
       </ul>
     </div>
   );

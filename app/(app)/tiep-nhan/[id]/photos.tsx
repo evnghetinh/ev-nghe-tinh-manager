@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { EmptyState, Icon, Toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { compressImage } from "@/lib/photo";
 import { useRole } from "@/lib/role";
@@ -67,11 +68,11 @@ export default function Photos({ orderId }: { orderId: string }) {
     setView(null); load();
   }
 
-  const input = "w-full border rounded-lg px-3 py-2";
+  const input = "w-full border px-3 py-2";
   const full = photos.length >= MAX;
   return (
-    <section className="bg-white rounded-xl shadow p-4 space-y-3">
-      <h2 className="font-bold">Hình ảnh ({photos.length}/{MAX})</h2>
+    <section className="card space-y-3">
+      <h2 className="font-bold text-navy-900">Hình ảnh ({photos.length}/{MAX})</h2>
       <div className="grid gap-2 sm:grid-cols-2">
         <select className={input} value={label} onChange={(e) => setLabel(e.target.value)}>
           {LABELS.map((l) => <option key={l}>{l}</option>)}
@@ -79,17 +80,17 @@ export default function Photos({ orderId }: { orderId: string }) {
         <input className={input} maxLength={200} placeholder="Ghi chú ngắn (không bắt buộc)" value={note} onChange={(e) => setNote(e.target.value)} />
       </div>
       <div className="flex gap-2 flex-wrap">
-        <button disabled={busy || full} onClick={() => cam.current?.click()} className="bg-blue-600 text-white rounded-lg px-4 py-2 disabled:opacity-50">📷 Chụp ảnh</button>
-        <button disabled={busy || full} onClick={() => lib.current?.click()} className="border border-blue-600 text-blue-600 rounded-lg px-4 py-2 disabled:opacity-50">Chọn nhiều ảnh</button>
+        <button disabled={busy || full} onClick={() => cam.current?.click()} className="btn-primary disabled:opacity-50">📷 Chụp ảnh</button>
+        <button disabled={busy || full} onClick={() => lib.current?.click()} className="btn-secondary !border-green-600 text-green-700 disabled:opacity-50">Chọn nhiều ảnh</button>
         <input ref={cam} type="file" accept="image/*" capture="environment" className="hidden" onChange={pick} />
         <input ref={lib} type="file" accept="image/*" multiple className="hidden" onChange={pick} />
       </div>
       {busy && <p className="text-sm text-slate-500">Đang nén và tải ảnh lên, vui lòng chờ...</p>}
-      {msg && <p className="text-sm text-red-600">{msg}</p>}
-      {photos.length === 0 && <p className="text-sm text-slate-500">Chưa có ảnh nào.</p>}
+      <Toast text={msg} onClose={() => setMsg("")} />
+      {photos.length === 0 && <EmptyState icon={<Icon name="box" />} text="Chưa có ảnh nào." />}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {photos.map((p) => (
-          <button key={p.id} onClick={() => setView(p)} className="text-left border rounded-lg overflow-hidden">
+          <button key={p.id} onClick={() => setView(p)} className="bare text-left border border-slate-200 rounded-xl overflow-hidden bg-white">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {p.url ? <img src={p.url} alt={p.label} loading="lazy" className="w-full aspect-square object-cover bg-slate-100" /> : <div className="aspect-square bg-slate-100" />}
             <div className="p-1.5 text-xs"><b>{p.label}</b><br />{new Date(p.created_at).toLocaleString("vi-VN")}</div>
@@ -106,8 +107,8 @@ export default function Photos({ orderId }: { orderId: string }) {
             <div><b>{view.label}</b> · {new Date(view.created_at).toLocaleString("vi-VN")} · {view.uploaded_by_name ?? "Không rõ"}</div>
             {view.note && <div>{view.note}</div>}
             <div className="flex gap-2 pt-1">
-              <button onClick={() => setView(null)} className="bg-white text-black rounded-lg px-4 py-2">Đóng</button>
-              {isOwner && <button onClick={() => remove(view)} className="bg-red-600 text-white rounded-lg px-4 py-2">Xóa ảnh</button>}
+              <button onClick={() => setView(null)} className="bg-white text-black px-4">Đóng</button>
+              {isOwner && <button onClick={() => remove(view)} className="btn-danger">Xóa ảnh</button>}
             </div>
           </div>
         </div>

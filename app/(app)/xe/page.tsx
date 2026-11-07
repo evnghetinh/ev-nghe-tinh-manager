@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { EmptyState, Icon, LoadingBlock, PageTitle, Toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 
 type Vehicle = { id: string; customer_id: string; plate: string; vin: string | null; vehicle_type: string; model: string | null; customers: { name: string; phone: string | null } | null };
@@ -14,12 +15,14 @@ export default function VehiclesPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [error, setError] = useState("");
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     const v = await supabase.from("vehicles").select("*, customers(name, phone)").order("created_at", { ascending: false });
     const c = await supabase.from("customers").select("id, name, phone").order("name");
     if (v.error) setError(v.error.message); else setList(v.data as unknown as Vehicle[]);
     if (c.data) setCusts(c.data);
+    setLoaded(true);
   }, []);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
@@ -41,12 +44,12 @@ export default function VehiclesPage() {
   }
 
   const shown = list.filter((v) => (v.plate + (v.vin ?? "") + (v.customers?.name ?? "")).toLowerCase().includes(q.toLowerCase()));
-  const input = "w-full border rounded-lg px-3 py-2";
+  const input = "w-full border px-3 py-2";
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold">Xe</h1>
-      <form onSubmit={save} className="bg-white rounded-xl shadow p-4 grid gap-3 sm:grid-cols-2">
+      <PageTitle icon={<Icon name="car" />} title="Xe" />
+      <form onSubmit={save} className="card grid gap-3 sm:grid-cols-2">
         <select required className={input} value={form.customer_id} onChange={(e) => setForm({ ...form, customer_id: e.target.value })}>
           <option value="">-- Chọn chủ xe * --</option>
           {custs.map((c) => <option key={c.id} value={c.id}>{c.name}{c.phone ? ` - ${c.phone}` : ""}</option>)}
@@ -58,27 +61,28 @@ export default function VehiclesPage() {
         </select>
         <input placeholder="Hãng / mẫu xe (VD: VinFast Klara S)" className={`${input} sm:col-span-2`} value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
         <div className="sm:col-span-2 flex gap-2">
-          <button className="bg-green-600 text-white rounded-lg px-4 py-2">{editId ? "Lưu thay đổi" : "Thêm xe"}</button>
-          {editId && <button type="button" onClick={() => { setEditId(null); setForm(empty); }} className="border rounded-lg px-4 py-2">Hủy</button>}
+          <button className="btn-primary">{editId ? "Lưu thay đổi" : "Thêm xe"}</button>
+          {editId && <button type="button" onClick={() => { setEditId(null); setForm(empty); }} className="btn-secondary">Hủy</button>}
         </div>
         {custs.length === 0 && <p className="sm:col-span-2 text-sm text-amber-700">Cần thêm khách hàng trước khi thêm xe.</p>}
       </form>
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      <Toast text={error} onClose={() => setError("")} />
       <input placeholder="Tìm theo biển số, số khung, tên chủ xe..." className={input} value={q} onChange={(e) => setQ(e.target.value)} />
       <ul className="space-y-2">
         {shown.map((v) => (
-          <li key={v.id} className="bg-white rounded-xl shadow p-3 flex justify-between gap-2">
+          <li key={v.id} className="card flex justify-between gap-2">
             <div className="min-w-0">
-              <div className="font-medium">{v.plate} <span className="text-sm font-normal text-slate-500">· {v.vehicle_type}{v.model ? ` · ${v.model}` : ""}</span></div>
+              <div className="font-semibold text-navy-900">{v.plate} <span className="text-sm font-normal text-slate-500">· {v.vehicle_type}{v.model ? ` · ${v.model}` : ""}</span></div>
               <div className="text-sm text-slate-500">Chủ xe: {v.customers?.name}{v.customers?.phone ? ` (${v.customers.phone})` : ""}{v.vin ? ` · Số khung: ${v.vin}` : ""}</div>
             </div>
-            <div className="flex gap-3 text-sm shrink-0 items-start">
-              <button onClick={() => { setEditId(v.id); setForm({ customer_id: v.customer_id, plate: v.plate, vin: v.vin ?? "", vehicle_type: v.vehicle_type, model: v.model ?? "" }); window.scrollTo(0, 0); }} className="text-green-700">Sửa</button>
-              <button onClick={() => remove(v)} className="text-red-600">Xóa</button>
+            <div className="flex gap-1 text-sm shrink-0 items-start">
+              <button onClick={() => { setEditId(v.id); setForm({ customer_id: v.customer_id, plate: v.plate, vin: v.vin ?? "", vehicle_type: v.vehicle_type, model: v.model ?? "" }); window.scrollTo(0, 0); }} className="bare text-green-700 px-3 min-h-11">Sửa</button>
+              <button onClick={() => remove(v)} className="bare text-red-600 px-3 min-h-11">Xóa</button>
             </div>
           </li>
         ))}
-        {shown.length === 0 && <li className="text-slate-500 text-sm">Chưa có xe.</li>}
+        {!loaded && <li><LoadingBlock rows={3} /></li>}
+        {loaded && shown.length === 0 && <li><EmptyState icon={<Icon name="car" />} text={q ? "Không có xe nào khớp từ khóa." : "Chưa có xe. Nhập form phía trên để thêm xe đầu tiên."} /></li>}
       </ul>
     </div>
   );

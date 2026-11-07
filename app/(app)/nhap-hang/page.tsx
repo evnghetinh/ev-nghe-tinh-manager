@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
+import { EmptyState, Icon, LoadingBlock, PageTitle, Toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { money, money2, qtyText } from "@/lib/format";
 import { useRole } from "@/lib/role";
@@ -70,6 +71,7 @@ export default function ImportPage() {
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
   const [history, setHistory] = useState<Batch[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [openItems, setOpenItems] = useState<BatchItem[]>([]);
   const [openLogs, setOpenLogs] = useState<Log[]>([]);
@@ -86,6 +88,7 @@ export default function ImportPage() {
     if (h.error) return setError("Không đọc được lịch sử (đã chạy giai-doan-8.sql chưa?): " + h.error.message);
     setParts((p.data as Part[]).map((x) => ({ ...x, he_so: Number(x.he_so) })));
     setHistory(h.data as Batch[]);
+    setLoaded(true);
   }, []);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (isOwner) loadAll(); }, [isOwner, loadAll]);
@@ -266,15 +269,15 @@ export default function ImportPage() {
     setOk("Đã ẩn phụ tùng."); loadDetail(open);
   }
 
-  if (!isOwner) return <p className="text-slate-500">Mục này chỉ dành cho Chủ xưởng.</p>;
+  if (!isOwner) return <EmptyState icon={<Icon name="alert" />} text="Mục này chỉ dành cho Chủ xưởng." />;
 
-  const input = "w-full border rounded-lg px-3 py-2";
+  const input = "w-full border px-3 py-2";
   const lbl = "text-xs text-slate-500";
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold">Nhập hàng</h1>
+      <PageTitle icon={<Icon name="truck" />} title="Nhập hàng" />
 
-      <div className="bg-white rounded-xl shadow p-4 space-y-3">
+      <div className="card space-y-3">
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="space-y-1"><span className={lbl}>Ngày nhập</span>
             <input type="date" className={input} value={date} onChange={(e) => setDate(e.target.value)} /></label>
@@ -284,20 +287,20 @@ export default function ImportPage() {
         <label className="space-y-1 block"><span className={lbl}>Ghi chú (không bắt buộc)</span>
           <input className={input} value={note} onChange={(e) => setNote(e.target.value)} /></label>
         <label className="block">
-          <span className="inline-block bg-green-600 text-white rounded-lg px-4 py-2 cursor-pointer">Chọn file Excel / CSV</span>
+          <span className="btn btn-primary cursor-pointer">Chọn file Excel / CSV</span>
           <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onFile} />
           {fileName && <span className="ml-3 text-sm text-slate-600 break-all">{fileName}</span>}
         </label>
         <p className="text-xs text-slate-500">Cột nên có: Tên hàng, Mã phụ tùng, Số lượng, Giá nhập, (Giá bán). Chưa lưu gì cho đến khi bạn bấm Xác nhận.</p>
       </div>
 
-      {error && <p className="text-sm text-red-600 whitespace-pre-wrap">{error}</p>}
-      {ok && <p className="text-sm text-green-700">{ok}</p>}
+      <Toast text={error} onClose={() => setError("")} />
+      <Toast kind="ok" text={ok} onClose={() => setOk("")} />
 
       {raw && (
         <>
-          {raw.headers.length > 0 && <div className="bg-white rounded-xl shadow p-4 space-y-2">
-            <div className="font-medium">1. Kiểm tra cột</div>
+          {raw.headers.length > 0 && <div className="card space-y-2">
+            <div className="font-semibold text-navy-900">1. Kiểm tra cột</div>
             <div className="grid gap-2 grid-cols-2 sm:grid-cols-3">
               {FIELDS.map((f) => (
                 <label key={f.key} className="space-y-1">
@@ -312,14 +315,14 @@ export default function ImportPage() {
           </div>}
 
           <div className="space-y-2">
-            <div className="font-medium">{raw.headers.length > 0 ? "2. " : ""}Xem trước ({rows.length} dòng{errCount ? `, ${errCount} dòng cần sửa` : ""})</div>
+            <div className="font-semibold text-navy-900">{raw.headers.length > 0 ? "2. " : ""}Xem trước ({rows.length} dòng{errCount ? `, ${errCount} dòng cần sửa` : ""})</div>
             {rows.map((r, i) => {
               const c = checks[i];
               return (
-                <div key={r.id} className={`bg-white rounded-xl shadow p-3 space-y-2 border-l-4 ${c.errs.length ? "border-red-500" : c.exist ? "border-blue-400" : "border-green-500"}`}>
+                <div key={r.id} className={`card space-y-2 border-l-4 ${c.errs.length ? "border-red-500" : c.exist ? "border-blue-400" : "border-green-500"}`}>
                   <div className="flex justify-between items-center gap-2 text-xs">
                     <span className="text-slate-500">#{i + 1} · {c.exist ? `Đã có (${c.exist.don_vi_ban}): tồn +${c.qtyBan !== null ? qtyText(c.qtyBan) : "?"} ${c.dvBan}, cập nhật giá nhập` : "Món mới"}</span>
-                    <button onClick={() => del(r.id)} className="text-red-600 text-sm">Bỏ dòng</button>
+                    <button onClick={() => del(r.id)} className="bare text-red-600 text-sm px-3 min-h-11">Bỏ dòng</button>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
                     <input className={`${input} col-span-2 sm:col-span-3`} placeholder="Tên hàng" value={r.name} onChange={(e) => setCell(r.id, "name", e.target.value)} />
@@ -349,24 +352,24 @@ export default function ImportPage() {
                 </div>
               );
             })}
-            {rows.length === 0 && <p className="text-sm text-slate-500">Không còn dòng nào.</p>}
+            {rows.length === 0 && <EmptyState icon={<Icon name="box" />} text="Không còn dòng nào." />}
           </div>
 
-          <div className="sticky bottom-16 md:bottom-0 bg-white rounded-xl shadow p-3 flex flex-wrap items-center gap-3 justify-between">
+          <div className="card sticky bottom-16 md:bottom-0 flex flex-wrap items-center gap-3 justify-between">
             <div className="text-sm">Tổng tiền nhập: <b>{money(Math.round(total))}</b>{errCount ? <span className="text-red-600"> · còn {errCount} dòng lỗi</span> : null}</div>
             <div className="flex gap-2">
-              <button onClick={reset} className="border rounded-lg px-4 py-2">Hủy</button>
+              <button onClick={reset} className="btn-secondary">Hủy</button>
               <button disabled={busy || errCount > 0 || rows.length === 0} onClick={confirmImport}
-                className="bg-green-600 text-white rounded-lg px-4 py-2 disabled:opacity-40">{busy ? "Đang lưu..." : "Xác nhận nhập hàng"}</button>
+                className="btn-primary disabled:opacity-40">{busy ? "Đang lưu..." : "Xác nhận nhập hàng"}</button>
             </div>
           </div>
         </>
       )}
 
       <div className="space-y-2">
-        <h2 className="font-bold">Lịch sử nhập hàng</h2>
+        <h2 className="font-bold text-navy-900">Lịch sử nhập hàng</h2>
         {history.map((b) => (
-          <div key={b.id} className="bg-white rounded-xl shadow p-3 space-y-2">
+          <div key={b.id} className="card space-y-2">
             <button onClick={() => toggle(b)} className="w-full text-left flex justify-between gap-2">
               <span>
                 <span className={b.da_huy ? "line-through text-slate-500" : ""}>
@@ -392,37 +395,37 @@ export default function ImportPage() {
                         {it.so_luong_goc !== null && it.so_luong_goc !== it.qty ? ` → tồn +${qtyText(it.qty)} ${it.don_vi} (vốn ${money2(it.cost_price)}/${it.don_vi})` : ""}
                       </div>
                       {b.da_huy && it.is_new && hideable.has(it.part_id ?? "") && (
-                        <button onClick={() => hidePart(it.part_id)} className="text-xs text-amber-700 border border-amber-300 rounded px-2 py-1">Ẩn phụ tùng này (tồn 0, chưa dùng)</button>
+                        <button onClick={() => hidePart(it.part_id)} className="text-xs text-amber-700 border border-amber-300 rounded-xl px-3">Ẩn phụ tùng này (tồn 0, chưa dùng)</button>
                       )}
                     </li>
                   ))}
                 </ul>
                 {!b.da_huy && !editing && !cancelling && (
                   <div className="flex flex-wrap gap-2">
-                    <button onClick={() => setEditing({ id: b.id, supplier: b.supplier ?? "", date: b.imported_on, note: b.note ?? "" })} className="border rounded-lg px-3 py-2 text-sm">Sửa thông tin</button>
-                    <button onClick={() => setCancelling({ id: b.id, reason: "", redo: false })} className="border border-red-300 text-red-700 rounded-lg px-3 py-2 text-sm">Hủy phiếu nhập</button>
-                    <button onClick={() => setCancelling({ id: b.id, reason: "", redo: true })} className="border border-amber-300 text-amber-700 rounded-lg px-3 py-2 text-sm">Hủy và nhập lại</button>
+                    <button onClick={() => setEditing({ id: b.id, supplier: b.supplier ?? "", date: b.imported_on, note: b.note ?? "" })} className="btn-secondary text-sm !px-3">Sửa thông tin</button>
+                    <button onClick={() => setCancelling({ id: b.id, reason: "", redo: false })} className="border border-red-300 text-red-700 bg-white px-3 text-sm">Hủy phiếu nhập</button>
+                    <button onClick={() => setCancelling({ id: b.id, reason: "", redo: true })} className="border border-amber-300 text-amber-700 bg-white px-3 text-sm">Hủy và nhập lại</button>
                   </div>
                 )}
                 {editing?.id === b.id && (
-                  <div className="space-y-2 bg-slate-50 rounded-lg p-3">
+                  <div className="space-y-2 bg-slate-50 rounded-xl p-3">
                     <p className="text-xs text-slate-500">Chỉ sửa thông tin, không đổi kho. Muốn đổi số lượng/giá: dùng &quot;Hủy và nhập lại&quot;.</p>
                     <input type="date" className={input} value={editing.date} onChange={(e) => setEditing({ ...editing, date: e.target.value })} />
                     <input className={input} placeholder="Nhà cung cấp" value={editing.supplier} onChange={(e) => setEditing({ ...editing, supplier: e.target.value })} />
                     <input className={input} placeholder="Ghi chú" value={editing.note} onChange={(e) => setEditing({ ...editing, note: e.target.value })} />
                     <div className="flex gap-2">
-                      <button disabled={busy} onClick={saveEdit} className="bg-green-600 text-white rounded-lg px-4 py-2 disabled:opacity-50">Lưu</button>
-                      <button onClick={() => setEditing(null)} className="border rounded-lg px-4 py-2">Đóng</button>
+                      <button disabled={busy} onClick={saveEdit} className="btn-primary disabled:opacity-50">Lưu</button>
+                      <button onClick={() => setEditing(null)} className="btn-secondary">Đóng</button>
                     </div>
                   </div>
                 )}
                 {cancelling?.id === b.id && (
-                  <div className="space-y-2 bg-red-50 rounded-lg p-3">
+                  <div className="space-y-2 bg-red-50 rounded-xl p-3">
                     <p className="text-sm text-red-700">{cancelling.redo ? "Hủy phiếu này rồi mở lại màn hình nhập với dữ liệu cũ để sửa." : "Hủy phiếu: tồn kho sẽ bị trừ lại đúng số lượng đã nhập."}</p>
                     <input className={input} placeholder="Lý do hủy (bắt buộc)" value={cancelling.reason} onChange={(e) => setCancelling({ ...cancelling, reason: e.target.value })} />
                     <div className="flex gap-2">
-                      <button disabled={busy || !cancelling.reason.trim()} onClick={doCancel} className="bg-red-600 text-white rounded-lg px-4 py-2 disabled:opacity-50">{busy ? "Đang hủy..." : cancelling.redo ? "Hủy và nhập lại" : "Xác nhận hủy"}</button>
-                      <button onClick={() => setCancelling(null)} className="border rounded-lg px-4 py-2">Đóng</button>
+                      <button disabled={busy || !cancelling.reason.trim()} onClick={doCancel} className="btn-danger disabled:opacity-50">{busy ? "Đang hủy..." : cancelling.redo ? "Hủy và nhập lại" : "Xác nhận hủy"}</button>
+                      <button onClick={() => setCancelling(null)} className="btn-secondary">Đóng</button>
                     </div>
                   </div>
                 )}
@@ -436,7 +439,8 @@ export default function ImportPage() {
             )}
           </div>
         ))}
-        {history.length === 0 && <p className="text-sm text-slate-500">Chưa có lần nhập nào.</p>}
+        {!loaded && <LoadingBlock rows={2} />}
+        {loaded && history.length === 0 && <EmptyState icon={<Icon name="truck" />} text="Chưa có lần nhập nào. Chọn file Excel phía trên để nhập lô đầu tiên." />}
       </div>
     </div>
   );

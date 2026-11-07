@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
+import { EmptyState, Icon, LoadingBlock, PageTitle, Toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { money, digits } from "@/lib/format";
 import { useRole } from "@/lib/role";
@@ -19,8 +20,8 @@ const addMonth = (m: string, n: number) => { const [y, mo] = m.split("-").map(Nu
 const fmtMonth = (m: string) => `${m.slice(5)}/${m.slice(0, 4)}`;
 const fmtDate = (d: string) => d.split("-").reverse().join("/");
 const num = (s: string) => Number(digits(s) || 0);
-const inp = "border rounded-lg px-3 py-2 w-full bg-white";
-const btn = "rounded-lg px-4 py-2 font-medium";
+const inp = "border px-3 py-2 w-full bg-white";
+const btn = "px-4 font-medium";
 const costOf = (c: Paid["repair_items"][number]["repair_item_costs"]) => (Array.isArray(c) ? c[0]?.cost_price : c?.cost_price) ?? 0;
 
 function useRows<T>(table: string, order: string) {
@@ -41,11 +42,11 @@ function MoneyInput({ value, onChange, placeholder }: { value: string; onChange:
 }
 
 function Card({ title, children }: { title?: string; children: React.ReactNode }) {
-  return <div className="bg-white rounded-xl shadow p-4 space-y-3">{title && <h2 className="font-semibold">{title}</h2>}{children}</div>;
+  return <div className="card space-y-3">{title && <h2 className="font-semibold text-navy-900">{title}</h2>}{children}</div>;
 }
 
 function Msg({ error }: { error: string }) {
-  return error ? <p className="text-sm text-red-600">{error}</p> : null;
+  return <Toast text={error} />;
 }
 
 async function run(p: PromiseLike<{ error: { message: string } | null }>, setError: (s: string) => void) {
@@ -90,13 +91,13 @@ function SetupSection({ rows, reload, error }: { rows: Setup[]; reload: () => vo
         </div>
         <Msg error={err || error} />
         <div className="flex gap-2">
-          <button onClick={save} className={`${btn} bg-green-600 text-white`}>{f.id ? "Lưu thay đổi" : "Thêm"}</button>
-          {f.id && <button onClick={() => { setF(empty); setErr(""); }} className={`${btn} border`}>Hủy</button>}
+          <button onClick={save} className={`${btn} btn-primary`}>{f.id ? "Lưu thay đổi" : "Thêm"}</button>
+          {f.id && <button onClick={() => { setF(empty); setErr(""); }} className={`${btn} btn-secondary`}>Hủy</button>}
         </div>
       </Card>
       <Card>
         <div className="flex justify-between font-bold text-lg"><span>Tổng chi phí mở xưởng</span><span className="text-green-700">{money(total)}</span></div>
-        {rows.length === 0 ? <p className="text-sm text-slate-500">Chưa có khoản nào.</p> : (
+        {rows.length === 0 ? <EmptyState icon={<Icon name="wallet" />} text="Chưa có khoản nào." /> : (
           <ul className="divide-y">
             {rows.map((r) => (
               <li key={r.id} className="py-2 flex gap-2 items-start">
@@ -105,8 +106,8 @@ function SetupSection({ rows, reload, error }: { rows: Setup[]; reload: () => vo
                   <div className="text-sm text-slate-500">{[r.paid_by && `Người chi: ${r.paid_by}`, r.note].filter(Boolean).join(" · ")}</div>
                 </div>
                 <div className="text-right"><div className="font-medium">{money(r.amount)}</div>
-                  <button onClick={() => edit(r)} className="text-sm text-blue-700 mr-3">Sửa</button>
-                  <button onClick={() => del(r)} className="text-sm text-red-600">Xóa</button></div>
+                  <button onClick={() => edit(r)} className="bare text-sm text-green-700 px-2 min-h-11">Sửa</button>
+                  <button onClick={() => del(r)} className="bare text-sm text-red-600 px-2 min-h-11">Xóa</button></div>
               </li>
             ))}
           </ul>
@@ -146,17 +147,17 @@ function ContribSection({ rows, reload, error, setupTotal }: { rows: Contrib[]; 
         </div>
         <Msg error={err || error} />
         <div className="flex gap-2">
-          <button onClick={save} className={`${btn} bg-green-600 text-white`}>{f.id ? "Lưu thay đổi" : "Thêm"}</button>
-          {f.id && <button onClick={() => { setF(empty); setErr(""); }} className={`${btn} border`}>Hủy</button>}
+          <button onClick={save} className={`${btn} btn-primary`}>{f.id ? "Lưu thay đổi" : "Thêm"}</button>
+          {f.id && <button onClick={() => { setF(empty); setErr(""); }} className={`${btn} btn-secondary`}>Hủy</button>}
         </div>
       </Card>
       <Card>
         <div className="flex justify-between font-bold text-lg"><span>Tổng vốn góp</span><span className="text-green-700">{money(total)}</span></div>
         <div className="flex justify-between text-sm"><span>Tổng chi phí mở xưởng</span><span>{money(setupTotal)}</span></div>
-        <div className={`rounded-lg p-3 text-sm font-medium ${diff < 0 ? "bg-red-50 text-red-700" : "bg-green-50 text-green-800"}`}>
+        <div className={`rounded-xl p-3 text-sm font-medium ${diff < 0 ? "bg-red-50 text-red-700" : "bg-green-50 text-green-800"}`}>
           {diff === 0 ? "Vốn góp vừa đủ so với chi phí mở xưởng." : diff > 0 ? `Vốn góp DƯ ${money(diff)} so với chi phí mở xưởng.` : `Vốn góp THIẾU ${money(-diff)} so với chi phí mở xưởng.`}
         </div>
-        {rows.length === 0 ? <p className="text-sm text-slate-500">Chưa có người góp.</p> : (
+        {rows.length === 0 ? <EmptyState icon={<Icon name="users" />} text="Chưa có người góp." /> : (
           <ul className="divide-y">
             {rows.map((r) => (
               <li key={r.id} className="py-2 flex gap-2 items-start">
@@ -165,8 +166,8 @@ function ContribSection({ rows, reload, error, setupTotal }: { rows: Contrib[]; 
                   <div className="text-sm text-slate-500">{[fmtDate(r.contributed_on), r.note].filter(Boolean).join(" · ")}</div>
                 </div>
                 <div className="text-right"><div className="font-medium">{money(r.amount)}</div>
-                  <button onClick={() => setF({ id: r.id, contributor: r.contributor, amount: String(r.amount), contributed_on: r.contributed_on, note: r.note ?? "" })} className="text-sm text-blue-700 mr-3">Sửa</button>
-                  <button onClick={() => del(r)} className="text-sm text-red-600">Xóa</button></div>
+                  <button onClick={() => setF({ id: r.id, contributor: r.contributor, amount: String(r.amount), contributed_on: r.contributed_on, note: r.note ?? "" })} className="bare text-sm text-green-700 px-2 min-h-11">Sửa</button>
+                  <button onClick={() => del(r)} className="bare text-sm text-red-600 px-2 min-h-11">Xóa</button></div>
               </li>
             ))}
           </ul>
@@ -206,11 +207,11 @@ function OpSection({ rows, reload, error }: { rows: Op[]; reload: () => void; er
     <div className="space-y-4">
       <Card title="Chi phí vận hành theo tháng">
         <div className="flex gap-2 items-center">
-          <button onClick={() => setMonth(addMonth(month, -1))} className={`${btn} border`}>‹</button>
+          <button onClick={() => setMonth(addMonth(month, -1))} className={`${btn} btn-secondary`}>‹</button>
           <input type="month" className={inp} value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} />
-          <button onClick={() => setMonth(addMonth(month, 1))} className={`${btn} border`}>›</button>
+          <button onClick={() => setMonth(addMonth(month, 1))} className={`${btn} btn-secondary`}>›</button>
         </div>
-        <button onClick={copyPrev} className={`${btn} border w-full`}>Sao chép từ tháng {fmtMonth(addMonth(month, -1))}</button>
+        <button onClick={copyPrev} className={`${btn} btn-secondary w-full`}>Sao chép từ tháng {fmtMonth(addMonth(month, -1))}</button>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <select className={inp} value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>{Object.entries(KINDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
           <MoneyInput value={f.amount} onChange={(v) => setF({ ...f, amount: v })} />
@@ -218,20 +219,20 @@ function OpSection({ rows, reload, error }: { rows: Op[]; reload: () => void; er
         </div>
         <Msg error={err || error} />
         <div className="flex gap-2">
-          <button onClick={save} className={`${btn} bg-green-600 text-white`}>{f.id ? "Lưu thay đổi" : "Thêm"}</button>
-          {f.id && <button onClick={() => { setF(empty); setErr(""); }} className={`${btn} border`}>Hủy</button>}
+          <button onClick={save} className={`${btn} btn-primary`}>{f.id ? "Lưu thay đổi" : "Thêm"}</button>
+          {f.id && <button onClick={() => { setF(empty); setErr(""); }} className={`${btn} btn-secondary`}>Hủy</button>}
         </div>
       </Card>
       <Card>
         <div className="flex justify-between font-bold text-lg"><span>Tổng tháng {fmtMonth(month)}</span><span className="text-green-700">{money(total)}</span></div>
-        {cur.length === 0 ? <p className="text-sm text-slate-500">Tháng này chưa có khoản nào.</p> : (
+        {cur.length === 0 ? <EmptyState icon={<Icon name="wallet" />} text="Tháng này chưa có khoản nào." /> : (
           <ul className="divide-y">
             {cur.map((r) => (
               <li key={r.id} className="py-2 flex gap-2 items-start">
                 <div className="flex-1 min-w-0"><div className="font-medium">{KINDS[r.kind]}</div>{r.note && <div className="text-sm text-slate-500">{r.note}</div>}</div>
                 <div className="text-right"><div className="font-medium">{money(r.amount)}</div>
-                  <button onClick={() => setF({ id: r.id, kind: r.kind, amount: String(r.amount), note: r.note ?? "" })} className="text-sm text-blue-700 mr-3">Sửa</button>
-                  <button onClick={() => del(r)} className="text-sm text-red-600">Xóa</button></div>
+                  <button onClick={() => setF({ id: r.id, kind: r.kind, amount: String(r.amount), note: r.note ?? "" })} className="bare text-sm text-green-700 px-2 min-h-11">Sửa</button>
+                  <button onClick={() => del(r)} className="bare text-sm text-red-600 px-2 min-h-11">Xóa</button></div>
               </li>
             ))}
           </ul>
@@ -346,7 +347,7 @@ function ReportSection({ setup, contribs, ops, priors, reloadPriors, priorError 
           <input type="date" className={`${inp} mt-1`} value={start ?? ""} onChange={(e) => saveStart(e.target.value)} />
         </label>
         <Msg error={error} />
-        {loading ? <p className="text-slate-500">Đang tính...</p> : (
+        {loading ? <LoadingBlock rows={2} /> : (
           <>
             <div className="grid grid-cols-2 gap-2">
               <Stat label="Tổng vốn đầu tư" value={money(invest)} />
@@ -358,8 +359,8 @@ function ReportSection({ setup, contribs, ops, priors, reloadPriors, priorError 
               <div className="h-4 bg-slate-200 rounded-full overflow-hidden"><div className="h-full bg-green-600" style={{ width: `${Math.min(Math.max(pct, 0), 100)}%` }} /></div>
               <div className="text-xs text-slate-500 mt-1">{invest === 0 ? "Chưa nhập chi phí mở xưởng." : `${money(Math.max(cum, 0))} / ${money(invest)}`}</div>
             </div>
-            <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm"><b>Ước tính:</b> {estimate}</div>
-            <button onClick={exportXlsx} className={`${btn} border w-full`}>Xuất Excel</button>
+            <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-sm"><b>Ước tính:</b> {estimate}</div>
+            <button onClick={exportXlsx} className={`${btn} btn-secondary w-full`}>Xuất Excel</button>
           </>
         )}
       </Card>
@@ -384,7 +385,7 @@ function ReportSection({ setup, contribs, ops, priors, reloadPriors, priorError 
 
       {!loading && (
         <Card title="Chia lợi nhuận lũy kế theo tỷ lệ vốn">
-          {byPerson.size === 0 ? <p className="text-sm text-slate-500">Chưa có người góp vốn.</p> : (
+          {byPerson.size === 0 ? <EmptyState icon={<Icon name="users" />} text="Chưa có người góp vốn." /> : (
             <ul className="divide-y">
               {[...byPerson].map(([n, a]) => (
                 <li key={n} className="py-2 flex justify-between gap-2 text-sm">
@@ -401,15 +402,15 @@ function ReportSection({ setup, contribs, ops, priors, reloadPriors, priorError 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <input type="month" className={inp} value={f.month} onChange={(e) => e.target.value && setF({ ...f, month: e.target.value })} />
           <div className="flex gap-2">
-            <select className="border rounded-lg px-2 bg-white" value={f.neg ? "-" : "+"} onChange={(e) => setF({ ...f, neg: e.target.value === "-" })}><option value="+">Lãi</option><option value="-">Lỗ</option></select>
+            <select className="border px-2 bg-white" value={f.neg ? "-" : "+"} onChange={(e) => setF({ ...f, neg: e.target.value === "-" })}><option value="+">Lãi</option><option value="-">Lỗ</option></select>
             <MoneyInput value={f.amount} onChange={(v) => setF({ ...f, amount: v })} />
           </div>
           <input className={`${inp} sm:col-span-2`} placeholder="Ghi chú" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
         </div>
         <Msg error={err || priorError} />
         <div className="flex gap-2">
-          <button onClick={savePrior} className={`${btn} bg-green-600 text-white`}>{f.id ? "Lưu thay đổi" : "Thêm"}</button>
-          {f.id && <button onClick={() => { setF(empty); setErr(""); }} className={`${btn} border`}>Hủy</button>}
+          <button onClick={savePrior} className={`${btn} btn-primary`}>{f.id ? "Lưu thay đổi" : "Thêm"}</button>
+          {f.id && <button onClick={() => { setF(empty); setErr(""); }} className={`${btn} btn-secondary`}>Hủy</button>}
         </div>
         <p className="text-xs text-slate-500">Chỉ các tháng từ ngày bắt đầu tính trở đi mới được cộng vào báo cáo.</p>
         {priors.length > 0 && (
@@ -418,8 +419,8 @@ function ReportSection({ setup, contribs, ops, priors, reloadPriors, priorError 
               <li key={p.id} className="py-2 flex gap-2 items-start">
                 <div className="flex-1 min-w-0"><div className="font-medium">Tháng {fmtMonth(monthOf(p.month))}</div>{p.note && <div className="text-sm text-slate-500">{p.note}</div>}</div>
                 <div className="text-right"><div className={`font-medium ${p.amount < 0 ? "text-red-700" : ""}`}>{money(p.amount)}</div>
-                  <button onClick={() => setF({ id: p.id, month: monthOf(p.month), amount: String(Math.abs(p.amount)), neg: p.amount < 0, note: p.note ?? "" })} className="text-sm text-blue-700 mr-3">Sửa</button>
-                  <button onClick={() => delPrior(p)} className="text-sm text-red-600">Xóa</button></div>
+                  <button onClick={() => setF({ id: p.id, month: monthOf(p.month), amount: String(Math.abs(p.amount)), neg: p.amount < 0, note: p.note ?? "" })} className="bare text-sm text-green-700 px-2 min-h-11">Sửa</button>
+                  <button onClick={() => delPrior(p)} className="bare text-sm text-red-600 px-2 min-h-11">Xóa</button></div>
               </li>
             ))}
           </ul>
@@ -430,7 +431,7 @@ function ReportSection({ setup, contribs, ops, priors, reloadPriors, priorError 
 }
 
 function Stat({ label, value, bad }: { label: string; value: string; bad?: boolean }) {
-  return <div className="bg-slate-50 rounded-lg p-3"><div className={`text-lg font-bold ${bad ? "text-red-700" : "text-green-700"}`}>{value}</div><div className="text-xs text-slate-500">{label}</div></div>;
+  return <div className="bg-green-50 rounded-xl p-3"><div className={`text-lg font-bold ${bad ? "text-red-700" : "text-green-700"}`}>{value}</div><div className="text-xs text-slate-500">{label}</div></div>;
 }
 
 const TABS = ["Chi phí mở xưởng", "Vốn góp", "Vận hành hàng tháng", "Thu hồi vốn"];
@@ -443,14 +444,14 @@ export default function VonPage() {
   const ops = useRows<Op>("von_chi_phi_van_hanh", "month");
   const priors = useRows<Prior>("von_loi_nhuan_cu", "month");
 
-  if (role !== "chu") return <p className="text-slate-500">Bạn không có quyền xem trang này.</p>;
+  if (role !== "chu") return <EmptyState icon={<Icon name="alert" />} text="Bạn không có quyền xem trang này." />;
   const setupTotal = setup.rows.reduce((s, r) => s + r.amount, 0);
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold">Vốn và thu hồi vốn</h1>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 bg-slate-200 p-1 rounded-xl">
+      <PageTitle icon={<Icon name="wallet" />} title="Vốn và thu hồi vốn" />
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 bg-green-100 p-1 rounded-xl">
         {TABS.map((t, i) => (
-          <button key={t} onClick={() => setTab(i)} className={`rounded-lg py-2 text-sm ${tab === i ? "bg-white font-semibold text-green-800 shadow" : "text-slate-600"}`}>{t}</button>
+          <button key={t} onClick={() => setTab(i)} className={`bare rounded-xl min-h-11 text-sm ${tab === i ? "bg-white font-semibold text-green-800 shadow" : "text-slate-600"}`}>{t}</button>
         ))}
       </div>
       {tab === 0 && <SetupSection rows={setup.rows} reload={setup.reload} error={setup.error} />}
