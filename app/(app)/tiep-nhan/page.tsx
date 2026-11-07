@@ -4,7 +4,12 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
 type Order = { id: string; code: number; customer_id: string; received_at: string; odometer: number | null; issue: string; status: string; note: string | null; vehicles: { plate: string; model: string | null } | null; customers: { name: string; phone: string | null } | null };
-type Veh = { id: string; customer_id: string; plate: string; customers: { name: string } | null };
+type Veh = { id: string; customer_id: string; plate: string; vehicle_type: string | null; customers: { name: string; phone: string | null } | null };
+type Cust = { id: string; name: string; phone: string | null };
+const TYPES = ["Xe máy điện", "Xe đạp điện", "Ô tô điện", "Xe ba bánh điện", "Khác"];
+const emptyNew = { plate: "", type: TYPES[0], vin: "", name: "", phone: "", address: "" };
+// bỏ dấu tiếng Việt, hoa/thường và mọi ký tự không phải chữ/số (dấu cách, chấm, gạch...)
+const squash = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/gi, "d").toLowerCase().replace(/[^a-z0-9]/g, "");
 const STATUS = ["Chờ xử lý", "Đang sửa", "Hoàn thành", "Đã giao xe"];
 const empty = { vehicle_id: "", odometer: "", issue: "", note: "", soc: "", soh: "", pin: "" };
 type Ktv = { id: string; ten: string };
@@ -13,6 +18,12 @@ const color: Record<string, string> = { "Chờ xử lý": "bg-amber-100 text-amb
 export default function OrdersPage() {
   const [list, setList] = useState<Order[]>([]);
   const [vehs, setVehs] = useState<Veh[]>([]);
+  const [custs, setCusts] = useState<Cust[]>([]);
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const [isNew, setIsNew] = useState(false);
+  const [nv, setNv] = useState(emptyNew);
+  const [busy, setBusy] = useState(false);
   const [form, setForm] = useState(empty);
   const [filter, setFilter] = useState("");
   const [ktvs, setKtvs] = useState<Ktv[]>([]);
@@ -22,7 +33,9 @@ export default function OrdersPage() {
 
   const load = useCallback(async () => {
     const o = await supabase.from("repair_orders").select("*, vehicles(plate, model), customers(name, phone)").order("created_at", { ascending: false });
-    const v = await supabase.from("vehicles").select("id, customer_id, plate, customers(name)").order("plate");
+    const v = await supabase.from("vehicles").select("id, customer_id, plate, vehicle_type, customers(name, phone)").order("plate");
+    const c = await supabase.from("customers").select("id, name, phone");
+    if (c.data) setCusts(c.data as Cust[]);
     if (o.error) setError(o.error.message); else setList(o.data as unknown as Order[]);
     if (v.data) setVehs(v.data as unknown as Veh[]);
     const k = await supabase.from("ev_ky_thuat_vien").select("id, ten").eq("dang_lam", true).order("ten");
@@ -33,13 +46,48 @@ export default function OrdersPage() {
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    if (busy) return;
     setError("");
     const veh = vehs.find((v) => v.id === form.vehicle_id);
-    if (!veh) return setError("Hãy chọn xe.");
+    if (!isNew && !veh) return setError("Hãy chọn xe, hoặc bấm \"+ Xe mới\".");
     if (form.soc === "") return setError("Hãy nhập SOC lúc nhận xe (%).");
     if (Number(form.soc) > 100 || Number(form.soh || 0) > 100) return setError("SOC và SOH phải từ 0 đến 100.");
+    setBusy(true);
+    try {
+      let vehicleId = veh?.id ?? "";
+      let customerId = veh?.customer_id ?? "";
+      if (isNew) {
+        const plate = nv.plate.trim().toUpperCase();
+        const phoneKey = nv.phone.replace(/\D/g, "");
+        if (!squash(plate)) return setError("Hãy nhập biển số.");
+        if (!nv.name.trim()) return setError("Hãy nhập tên khách.");
+        if (!phoneKey) return setError("Hãy nhập số điện thoại.");
+        const dup = vehs.find((v) => squash(v.plate) === squash(plate));
+        if (dup) {
+          pickVeh(dup);
+          return setError(`Biển số ${dup.plate} đã có xe (${dup.customers?.name ?? ""}). Đã chọn lại xe đó, hãy kiểm tra rồi bấm tạo phiếu.`);
+        }
+        const oldCust = custs.find((c) => (c.phone ?? "").replace(/\D/g, "") === phoneKey);
+        if (oldCust && !confirm(`Số điện thoại này đã có khách "${oldCust.name}". Dùng lại khách này cho xe mới?\n\nOK = dùng khách cũ, Hủy = quay lại sửa.`)) return;
+        const r = await supabase.rpc("tao_khach_xe", { p_bien_so: plate, p_loai_xe: nv.type, p_vin: nv.vin, p_ten: nv.name, p_sdt: nv.phone, p_dia_chi: nv.address, p_khach_id: oldCust?.id ?? null });
+        if (r.error) return setError(r.error.message);
+        const out = r.data as { xe_id: string; khach_id: string; xe_co_san: boolean };
+        if (out.xe_co_san) {
+          await load(); setIsNew(false); setForm((f) => ({ ...f, vehicle_id: out.xe_id }));
+          return setError("Biển số này đã có xe trong hệ thống. Đã chọn lại xe đó, hãy kiểm tra rồi bấm tạo phiếu.");
+        }
+        vehicleId = out.xe_id; customerId = out.khach_id;
+      }
+      await createOrder(vehicleId, customerId);
+    } finally { setBusy(false); }
+  }
+  function pickVeh(v: Veh) {
+    setForm((f) => ({ ...f, vehicle_id: v.id })); setIsNew(false); setOpen(false);
+    setQ(`${v.plate} - ${v.customers?.name ?? ""}`);
+  }
+  async function createOrder(vehicleId: string, customerId: string) {
     const { data: created, error } = await supabase.from("repair_orders").insert({
-      vehicle_id: veh.id, customer_id: veh.customer_id,
+      vehicle_id: vehicleId, customer_id: customerId,
       odometer: form.odometer ? Number(form.odometer) : null,
       issue: form.issue, note: form.note || null,
       soc_nhan: Number(form.soc), soh_nhan: form.soh ? Number(form.soh) : null, pin_ghi_chu: form.pin.trim() || null,
@@ -50,7 +98,7 @@ export default function OrdersPage() {
     const e1 = rows.length ? (await supabase.from("ev_ma_loi").insert(rows)).error : null;
     const e2 = chosen.length ? (await supabase.from("ev_phieu_ky_thuat_vien").insert(chosen.map((k) => ({ order_id: oid, ktv_id: k })))).error : null;
     if (e1 || e2) setError("Đã tạo phiếu nhưng chưa lưu được mã lỗi/kỹ thuật viên: " + (e1 || e2)!.message + ". Hãy mở phiếu để nhập lại.");
-    setForm(empty); setChosen([]); setDtcs([]); load();
+    setForm(empty); setChosen([]); setDtcs([]); setQ(""); setIsNew(false); setNv(emptyNew); load();
   }
   async function setStatus(id: string, status: string) {
     const { error } = await supabase.from("repair_orders").update({ status }).eq("id", id);
@@ -62,6 +110,11 @@ export default function OrdersPage() {
     if (error) setError(error.message); else load();
   }
 
+  const tokens = q.trim().split(/\s+/).map(squash).filter(Boolean);
+  const matches = vehs.filter((v) => {
+    const h = squash(`${v.plate} ${v.vehicle_type ?? ""} ${v.customers?.name ?? ""} ${v.customers?.phone ?? ""}`);
+    return tokens.every((t) => h.includes(t));
+  }).slice(0, 30);
   const shown = list.filter((o) => !filter || o.status === filter);
   const input = "w-full border rounded-lg px-3 py-2";
 
@@ -69,14 +122,48 @@ export default function OrdersPage() {
     <div className="space-y-4">
       <h1 className="text-xl font-bold">Phiếu tiếp nhận sửa chữa</h1>
       <form onSubmit={save} className="bg-white rounded-xl shadow p-4 grid gap-3 sm:grid-cols-2">
-        <select required className={`${input} sm:col-span-2`} value={form.vehicle_id} onChange={(e) => setForm({ ...form, vehicle_id: e.target.value })}>
-          <option value="">-- Chọn xe (biển số - chủ xe) * --</option>
-          {vehs.map((v) => <option key={v.id} value={v.id}>{v.plate} - {v.customers?.name}</option>)}
-        </select>
+        <div className="sm:col-span-2 space-y-2">
+          <div className="relative">
+            <input placeholder="Gõ biển số, tên khách hoặc số điện thoại để tìm xe *" className={input} value={q} autoComplete="off"
+              onFocus={() => setOpen(true)}
+              onChange={(e) => { setQ(e.target.value); setOpen(true); setForm({ ...form, vehicle_id: "" }); }} />
+            {open && !isNew && (
+              <ul className="absolute z-20 left-0 right-0 mt-1 max-h-72 overflow-auto bg-white border rounded-lg shadow-lg">
+                {matches.map((v) => (
+                  <li key={v.id}>
+                    <button type="button" onClick={() => pickVeh(v)} className="w-full text-left px-3 py-2 border-b hover:bg-green-50">
+                      <div className="font-medium">{v.plate} <span className="text-sm font-normal text-slate-500">· {v.vehicle_type ?? "Xe"}</span></div>
+                      <div className="text-sm text-slate-500">{v.customers?.name}{v.customers?.phone ? ` · ${v.customers.phone}` : ""}</div>
+                    </button>
+                  </li>
+                ))}
+                {matches.length === 0 && <li className="px-3 py-2 text-sm text-slate-500">Không có xe nào khớp.</li>}
+                <li><button type="button" onClick={() => { setIsNew(true); setOpen(false); setForm({ ...form, vehicle_id: "" }); }}
+                  className="w-full text-left px-3 py-3 text-green-700 font-medium bg-green-50">+ Xe mới</button></li>
+                <li><button type="button" onClick={() => setOpen(false)} className="w-full text-left px-3 py-2 text-sm text-slate-500">Đóng</button></li>
+              </ul>
+            )}
+          </div>
+          {form.vehicle_id && !isNew && <p className="text-sm text-green-700">✓ Đã chọn xe: {q}</p>}
+          {isNew && (
+            <div className="border rounded-lg p-3 grid gap-3 sm:grid-cols-2 bg-green-50/50">
+              <div className="sm:col-span-2 flex justify-between items-center gap-2">
+                <span className="font-medium">Xe mới (tự tạo khách và xe khi bấm tạo phiếu)</span>
+                <button type="button" onClick={() => { setIsNew(false); setOpen(true); }} className="text-sm text-slate-600 underline shrink-0">Chọn xe có sẵn</button>
+              </div>
+              <input required placeholder="Biển số *" className={input} value={nv.plate} onChange={(e) => setNv({ ...nv, plate: e.target.value })} />
+              <select className={input} value={nv.type} onChange={(e) => setNv({ ...nv, type: e.target.value })}>{TYPES.map((t) => <option key={t}>{t}</option>)}</select>
+              <input placeholder="Số khung / VIN (không bắt buộc)" className={`${input} sm:col-span-2`} value={nv.vin} onChange={(e) => setNv({ ...nv, vin: e.target.value })} />
+              <input required placeholder="Tên khách *" className={input} value={nv.name} onChange={(e) => setNv({ ...nv, name: e.target.value })} />
+              <input required placeholder="Số điện thoại *" inputMode="tel" className={input} value={nv.phone} onChange={(e) => setNv({ ...nv, phone: e.target.value })} />
+              <input placeholder="Địa chỉ (không bắt buộc)" className={`${input} sm:col-span-2`} value={nv.address} onChange={(e) => setNv({ ...nv, address: e.target.value })} />
+            </div>
+          )}
+        </div>
         <input placeholder="Số km đã đi" inputMode="numeric" className={input} value={form.odometer} onChange={(e) => setForm({ ...form, odometer: e.target.value.replace(/\D/g, "") })} />
         <input placeholder="Ghi chú (tình trạng xe, đồ để lại...)" className={input} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
-        <input required placeholder="SOC lúc nhận xe (%) *" inputMode="numeric" className={input} value={form.soc} onChange={(e) => setForm({ ...form, soc: e.target.value.replace(/D/g, "").slice(0, 3) })} />
-        <input placeholder="SOH pin (%) - không bắt buộc" inputMode="numeric" className={input} value={form.soh} onChange={(e) => setForm({ ...form, soh: e.target.value.replace(/D/g, "").slice(0, 3) })} />
+        <input required placeholder="SOC lúc nhận xe (%) *" inputMode="numeric" className={input} value={form.soc} onChange={(e) => setForm({ ...form, soc: e.target.value.replace(/\D/g, "").slice(0, 3) })} />
+        <input placeholder="SOH pin (%) - không bắt buộc" inputMode="numeric" className={input} value={form.soh} onChange={(e) => setForm({ ...form, soh: e.target.value.replace(/\D/g, "").slice(0, 3) })} />
         <input placeholder="Ghi chú tình trạng pin" className={`${input} sm:col-span-2`} value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value })} />
         <div className="sm:col-span-2 space-y-2">
           <div className="text-sm font-medium">Mã lỗi DTC</div>
@@ -101,8 +188,7 @@ export default function OrdersPage() {
         </div>
         <p className="sm:col-span-2 text-xs text-slate-500">Nhân viên tiếp nhận được lấy theo tài khoản đăng nhập.</p>
         <textarea required placeholder="Khách báo hỏng gì? *" rows={2} className={`${input} sm:col-span-2`} value={form.issue} onChange={(e) => setForm({ ...form, issue: e.target.value })} />
-        <div className="sm:col-span-2"><button className="bg-green-600 text-white rounded-lg px-4 py-2">Tạo phiếu tiếp nhận</button></div>
-        {vehs.length === 0 && <p className="sm:col-span-2 text-sm text-amber-700">Cần thêm khách hàng và xe trước khi tạo phiếu.</p>}
+        <div className="sm:col-span-2"><button disabled={busy} className="bg-green-600 text-white rounded-lg px-4 py-2 disabled:opacity-60">{busy ? "Đang tạo..." : "Tạo phiếu tiếp nhận"}</button></div>
       </form>
       {error && <p className="text-sm text-red-600">{error}</p>}
       <select className={input} value={filter} onChange={(e) => setFilter(e.target.value)}>
