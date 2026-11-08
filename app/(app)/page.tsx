@@ -27,6 +27,7 @@ export default function Dashboard() {
   const [low, setLow] = useState<Low[]>([]);
   const [error, setError] = useState("");
   const [months, setMonths] = useState<Month[]>([]);
+  const [kho, setKho] = useState<{ von: number; ban: number; con: number; thieu: number } | null>(null);
   const [no, setNo] = useState<{ tong: number; khach: number } | null>(null);
 
   useEffect(() => {
@@ -68,6 +69,9 @@ export default function Dashboard() {
       const cn = await supabase.rpc("cong_no_tong");
       const row = (cn.data as { tong: number; so_khach: number }[] | null)?.[0];
       setNo(row ? { tong: Number(row.tong), khach: Number(row.so_khach) } : null);
+      const tk = await supabase.rpc("tong_gia_tri_ton");
+      const k = (tk.data as { tong_von: number; tong_ban: number; so_con_hang: number; so_thieu_gia: number }[] | null)?.[0];
+      setKho(k ? { von: Number(k.tong_von), ban: Number(k.tong_ban), con: Number(k.so_con_hang), thieu: Number(k.so_thieu_gia) } : null);
       setOpen(o.count ?? 0);
       setBd([day, mon]);
       setLow(((pt.data ?? []) as Low[]).filter((x) => Number(x.stock) <= Number(x.min_stock)));
@@ -79,6 +83,8 @@ export default function Dashboard() {
   const cards = [
     { label: "Xe đang sửa / chờ xử lý", value: String(open), href: "/tiep-nhan", icon: "wrench", tone: "bg-sky-100 text-sky-700", loss: false },
     { label: no ? `Khách còn nợ (${no.khach} khách)` : "Khách còn nợ", value: no ? money(no.tong) : "—", href: "/cong-no", icon: "receipt", tone: "bg-red-100 text-red-700", loss: false },
+    { label: "Tiền hàng trong kho", value: kho ? money(kho.von) : "—", href: "/phu-tung", icon: "box", tone: "bg-amber-100 text-amber-700", loss: false,
+      sub: kho ? `${kho.con} loại còn hàng · giá bán dự kiến ${money(kho.ban)}${kho.thieu > 0 ? ` · ${kho.thieu} món chưa có giá nhập` : ""}` : undefined },
     { label: "Doanh thu hôm nay", value: money(bd[0].rev), icon: "money", tone: "bg-blue-100 text-blue-700", loss: false },
     { label: "Doanh thu tháng này", value: money(bd[1].rev), icon: "money", tone: "bg-indigo-100 text-indigo-700", loss: false },
     { label: "Lợi nhuận hôm nay", value: money(profitOf(bd[0])), loss: profitOf(bd[0]) < 0, icon: "trend", tone: "bg-emerald-100 text-emerald-700" },
@@ -96,6 +102,7 @@ export default function Dashboard() {
               <div className="min-w-0">
                 <div className="text-sm text-slate-500">{c.label}</div>
                 <div className={`text-2xl font-bold truncate ${c.loss ? "text-red-700" : "text-navy-900"}`}>{c.value}</div>
+                {"sub" in c && c.sub && <div className="text-xs text-slate-500">{c.sub}</div>}
               </div>
             </div>
           );

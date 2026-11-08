@@ -41,7 +41,66 @@ function Reconcile() {
   );
 }
 
-type Part = { id: string; name: string; code: string | null; cost_price?: number; sale_price: number; stock: number; is_hidden?: boolean } & DonVi;
+type Part = { id: string; name: string; code: string | null; cost_price?: number; sale_price: number; stock: number; is_hidden?: boolean; gia_tri_von?: number; gia_tri_ban?: number; co_gia_nhap?: boolean } & DonVi;
+type GiaTri = { part_id: string; gia_von: number; co_gia_nhap: boolean; gia_tri_von: number; gia_tri_ban: number };
+type Tong = { tong_von: number; tong_ban: number; so_con_hang: number; so_het_hang: number; so_thieu_gia: number };
+type LechTien = { part_id: string; ten: string; ma: string | null; loai: string; ton: number; tong_so: number; tien_lech: number };
+
+function TongTon({ rows, loc }: { rows: Part[]; loc: boolean }) {
+  const [db, setDb] = useState<Tong | null>(null);
+  const [lech, setLech] = useState<LechTien[] | null>(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    (async () => {
+      const r = await supabase.rpc("tong_gia_tri_ton");
+      if (r.error) return setErr(r.error.message + " (đã chạy giai-doan-24.sql chưa?)");
+      const x = (r.data as Tong[])[0];
+      setDb({ tong_von: Number(x.tong_von), tong_ban: Number(x.tong_ban), so_con_hang: Number(x.so_con_hang), so_het_hang: Number(x.so_het_hang), so_thieu_gia: Number(x.so_thieu_gia) });
+    })();
+  }, []);
+  const von = rows.reduce((t, p) => t + (p.gia_tri_von ?? 0), 0);
+  const ban = rows.reduce((t, p) => t + (p.gia_tri_ban ?? 0), 0);
+  const con = rows.filter((p) => p.stock > 0).length;
+  const het = rows.filter((p) => p.stock <= 0).length;
+  const thieu = rows.filter((p) => p.stock !== 0 && !p.co_gia_nhap).length;
+  const an = rows.filter((p) => p.is_hidden && p.stock !== 0).length;
+  const khop = !loc && db ? Math.round(db.tong_von) === Math.round(von) && Math.round(db.tong_ban) === Math.round(ban) : null;
+  async function run() {
+    setBusy(true); setErr("");
+    const r = await supabase.rpc("doi_chieu_gia_tri_ton");
+    setBusy(false);
+    if (r.error) return setErr(r.error.message);
+    setLech((r.data as LechTien[]).map((x) => ({ ...x, ton: Number(x.ton), tong_so: Number(x.tong_so), tien_lech: Number(x.tien_lech) })));
+  }
+  return (
+    <div className="card space-y-2">
+      <b className="text-navy-900">Giá trị tồn kho{loc ? " (theo bộ lọc)" : ""}</b>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div><div className="text-sm text-slate-500">Theo giá nhập</div><div className="text-2xl font-bold text-navy-900">{money(von)}</div></div>
+        <div><div className="text-sm text-slate-500">Theo giá bán dự kiến</div><div className="text-2xl font-bold text-navy-900">{money(ban)}</div></div>
+      </div>
+      <div className="text-sm text-slate-600">{con} loại còn hàng · {het} loại hết hàng{an > 0 ? ` · gồm ${an} món đã ẩn còn tồn` : ""}</div>
+      {thieu > 0 && <p className="text-sm text-amber-700">Có {thieu} món còn tồn nhưng chưa có giá nhập (tính 0) nên tổng chưa đầy đủ.</p>}
+      {khop === true && <p className="text-sm text-green-700">Khớp với thẻ “Tiền hàng trong kho” ở Tổng quan.</p>}
+      {khop === false && db && <p className="text-sm text-red-700">Lệch với Tổng quan: Tổng quan {money(db.tong_von)}, trang này {money(von)}. Bấm “Liệt kê chỗ lệch”.</p>}
+      <button onClick={run} disabled={busy} className="btn-secondary text-sm disabled:opacity-50">{busy ? "Đang kiểm tra..." : "Liệt kê chỗ lệch"}</button>
+      <Toast text={err} onClose={() => setErr("")} />
+      {lech && (lech.length === 0 ? <p className="text-sm text-green-700">Không có chỗ lệch: không món nào tồn âm, lệch sổ kho hay thiếu giá nhập.</p> : (
+        <ul className="space-y-1">
+          <li className="text-sm text-red-700">Có {lech.length} món cần xem:</li>
+          {lech.map((x) => (
+            <li key={x.part_id + x.loai} className="text-sm border border-slate-200 rounded-xl p-2">
+              <Link href={`/phu-tung/${x.part_id}`} className="text-blue-700 font-medium">{x.ten}{x.ma ? ` · ${x.ma}` : ""}</Link>
+              <div className="text-slate-600">{x.loai}</div>
+              <div className={x.ton < 0 ? "text-red-700" : "text-slate-600"}>Tồn {qtyText(x.ton)} · Tổng sổ kho {qtyText(x.tong_so)}{x.tien_lech !== 0 ? ` · Tiền lệch ${money(x.tien_lech)}` : ""}</div>
+            </li>
+          ))}
+        </ul>
+      ))}
+    </div>
+  );
+}
 const empty = { name: "", code: "", cost_price: "", sale_price: "", stock: "", don_vi_nhap: "cái", don_vi_ban: "cái", he_so: "1" };
 
 export default function PartsPage() {
@@ -51,6 +110,7 @@ export default function PartsPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [showHidden, setShowHidden] = useState(false);
+  const [sortGt, setSortGt] = useState(false);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
 
@@ -62,7 +122,13 @@ export default function PartsPage() {
       const c = await supabase.from("part_costs").select("part_id, cost_price");
       if (c.error) return setError(c.error.message);
       const m = new Map((c.data ?? []).map((x) => [x.part_id as string, Number(x.cost_price)]));
-      rows = rows.map((p) => ({ ...p, cost_price: m.get(p.id) ?? 0 }));
+      const g = await supabase.rpc("gia_tri_ton");
+      if (g.error) return setError(g.error.message + " (đã chạy giai-doan-24.sql chưa?)");
+      const gm = new Map((g.data as GiaTri[]).map((x) => [x.part_id, x]));
+      rows = rows.map((p) => {
+        const x = gm.get(p.id);
+        return { ...p, cost_price: m.get(p.id) ?? 0, gia_tri_von: Number(x?.gia_tri_von ?? 0), gia_tri_ban: Number(x?.gia_tri_ban ?? 0), co_gia_nhap: x?.co_gia_nhap ?? false };
+      });
     }
     setList(rows);
     setLoaded(true);
@@ -114,12 +180,16 @@ export default function PartsPage() {
     const { error } = await supabase.rpc("bo_an_phu_tung", { p_part: p.id });
     if (error) setError(error.message); else load();
   }
-  const shown = list.filter((p) => (showHidden || !p.is_hidden) && (!q || `${p.name} ${p.code ?? ""}`.toLowerCase().includes(q.toLowerCase())));
+  const khopTim = (p: Part) => !q || `${p.name} ${p.code ?? ""}`.toLowerCase().includes(q.toLowerCase());
+  const tinhTong = list.filter(khopTim); // tổng luôn gồm cả phụ tùng đã ẩn
+  const shown = list.filter((p) => (showHidden || !p.is_hidden) && khopTim(p));
+  if (isOwner && sortGt) shown.sort((a, b) => (b.gia_tri_von ?? 0) - (a.gia_tri_von ?? 0));
   const input = "w-full border px-3 py-2";
 
   return (
     <div className="space-y-4">
       <PageTitle icon={<Icon name="box" />} title="Phụ tùng" />
+      {isOwner && loaded && <TongTon rows={tinhTong} loc={!!q} />}
       {isOwner && <Reconcile />}
       <form onSubmit={save} className="card grid gap-3 sm:grid-cols-2">
         <input required placeholder="Tên phụ tùng *" className={input} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
@@ -146,6 +216,14 @@ export default function PartsPage() {
       </form>
       <Toast text={error} onClose={() => setError("")} />
       <input placeholder="Tìm theo tên hoặc mã..." className={input} value={q} onChange={(e) => setQ(e.target.value)} />
+      {isOwner && (
+        <label className="flex items-center gap-2 text-sm text-slate-600">Sắp xếp
+          <select className="border px-3 py-2 min-h-11 text-base" value={sortGt ? "gt" : "ten"} onChange={(e) => setSortGt(e.target.value === "gt")}>
+            <option value="ten">Theo tên A-Z</option>
+            <option value="gt">Giá trị tồn cao xuống thấp</option>
+          </select>
+        </label>
+      )}
       {isOwner && list.some((p) => p.is_hidden) && (
         <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} /> Hiện cả phụ tùng đã ẩn</label>
       )}
@@ -154,9 +232,16 @@ export default function PartsPage() {
           <li key={p.id} className="card space-y-1">
             <div className="flex justify-between gap-2">
               <Link href={`/phu-tung/${p.id}`} className="font-semibold text-green-700">{p.name}{p.code ? <span className="text-slate-500 font-normal"> · {p.code}</span> : null}{p.is_hidden ? <span className="ml-1 text-xs text-amber-700 font-normal">(đã ẩn)</span> : null}</Link>
-              <span className={`badge text-right max-w-[55%] shrink-0 ${p.stock > 0 ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-700"}`}>Tồn: {tonText(p.stock, p)}</span>
+              <span className={`badge text-right max-w-[55%] shrink-0 ${p.stock > 0 ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-700"}${p.stock < 0 ? " ring-2 ring-red-500" : ""}`}>Tồn: {tonText(p.stock, p)}</span>
             </div>
             <div className="text-sm text-slate-500">{isOwner ? `Vốn ${money2(p.cost_price ?? 0)}/${p.don_vi_ban} · ` : ""}Bán {money(p.sale_price)}/{p.don_vi_ban}</div>
+            {isOwner && (
+              <div className="text-sm">
+                {p.co_gia_nhap || p.stock === 0
+                  ? <span className={p.stock < 0 ? "text-red-700 font-semibold" : "text-slate-700"}>Giá trị tồn: {money(p.gia_tri_von ?? 0)}{p.stock < 0 ? " (tồn âm)" : ""}</span>
+                  : <span className="text-amber-700">Giá trị tồn: chưa có giá nhập (tính 0)</span>}
+              </div>
+            )}
             <div className="flex gap-1 text-sm flex-wrap">
               <Link href={`/phu-tung/${p.id}`} className="btn-secondary text-sm !px-3">Lịch sử</Link>
               {isOwner && <button onClick={() => edit(p)} className="btn-secondary text-sm !px-3">Sửa</button>}
