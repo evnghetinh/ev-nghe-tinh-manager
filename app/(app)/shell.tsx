@@ -12,6 +12,7 @@ const menu = [
   { href: "/khach-hang", label: "Khách hàng", icon: "users" },
   { href: "/xe", label: "Xe", icon: "car" },
   { href: "/phu-tung", label: "Phụ tùng", icon: "box" },
+  { href: "/cong-no", label: "Công nợ khách", icon: "receipt" },
   { href: "/nhap-hang", label: "Nhập hàng", icon: "truck", ownerOnly: true },
   { href: "/so-quy", label: "Sổ quỹ", icon: "money", ownerOnly: true },
   { href: "/von", label: "Vốn", icon: "wallet", ownerOnly: true },

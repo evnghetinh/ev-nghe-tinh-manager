@@ -20,7 +20,7 @@ const HANH_DONG: Record<string, string> = {
   nhap_hang: "Nhập kho", xuat_phieu: "Xuất kho cho phiếu", them_khi_sua: "Xuất thêm khi sửa phiếu", xoa_khi_sua: "Hoàn kho khi sửa phiếu",
   khach_tra: "Khách trả hàng", khach_tra_hang: "Khách trả hàng", kiem_ke: "Kiểm kê điều chỉnh", huy_nhap_hang: "Hủy nhập hàng",
   doi_don_vi: "Đổi đơn vị", ton_dau: "Tồn đầu kỳ", sua_lan_nhap: "Sửa lần nhập", huy_lan_nhap: "Hủy lần nhập",
-  sua_thong_tin_ev: "Sửa thông tin EV", khoi_tao: "Khởi tạo",
+  sua_thong_tin_ev: "Sửa thông tin EV", khoi_tao: "Khởi tạo", thu_no_khach: "Thu nợ khách", ghi_chu_cong_no: "Ghi chú công nợ",
   thiet_lap_quy: "Nhập số dư đầu kỳ quỹ", phieu_thu: "Phiếu thu", phieu_chi: "Phiếu chi", chuyen_quy: "Chuyển quỹ", kiem_quy: "Kiểm quỹ", huy_giao_dich_quy: "Hủy giao dịch sổ quỹ",
 };
 const hd = (k: string) => HANH_DONG[k] ?? k;

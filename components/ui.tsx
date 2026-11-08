@@ -84,6 +84,7 @@ const icons: Record<string, React.ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
   logout: <path d="M10 4H5v16h5M15 8l4 4-4 4M19 12H9" />,
   money: <><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></>,
+  receipt: <path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3ZM9 8h6M9 12h6" />,
   trend: <path d="m3 17 6-6 4 4 8-9M15 6h6v6" />,
   wrench: <path d="M14.5 6.5a4 4 0 0 0 5 5L10 21a2.1 2.1 0 0 1-3-3l9.5-9.5Z" />,
   alert: <path d="M12 3 2 20h20L12 3Zm0 6v5m0 3v.5" />,

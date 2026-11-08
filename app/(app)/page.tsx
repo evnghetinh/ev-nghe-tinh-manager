@@ -27,6 +27,7 @@ export default function Dashboard() {
   const [low, setLow] = useState<Low[]>([]);
   const [error, setError] = useState("");
   const [months, setMonths] = useState<Month[]>([]);
+  const [no, setNo] = useState<{ tong: number; khach: number } | null>(null);
 
   useEffect(() => {
     if (role !== "chu") return;
@@ -64,6 +65,9 @@ export default function Dashboard() {
         for (const c of r.repair_costs ?? []) if (c.kind === "vat_tu" || c.kind === "thue_ngoai" || c.kind === "khac") b[c.kind] += c.amount;
       }
       setMonths(keys.map((x) => ({ label: x.label, rev: agg.get(x.k)!.rev, profit: profitOf(agg.get(x.k)!) })));
+      const cn = await supabase.rpc("cong_no_tong");
+      const row = (cn.data as { tong: number; so_khach: number }[] | null)?.[0];
+      setNo(row ? { tong: Number(row.tong), khach: Number(row.so_khach) } : null);
       setOpen(o.count ?? 0);
       setBd([day, mon]);
       setLow(((pt.data ?? []) as Low[]).filter((x) => Number(x.stock) <= Number(x.min_stock)));
@@ -74,6 +78,7 @@ export default function Dashboard() {
 
   const cards = [
     { label: "Xe đang sửa / chờ xử lý", value: String(open), href: "/tiep-nhan", icon: "wrench", tone: "bg-sky-100 text-sky-700", loss: false },
+    { label: no ? `Khách còn nợ (${no.khach} khách)` : "Khách còn nợ", value: no ? money(no.tong) : "—", href: "/cong-no", icon: "receipt", tone: "bg-red-100 text-red-700", loss: false },
     { label: "Doanh thu hôm nay", value: money(bd[0].rev), icon: "money", tone: "bg-blue-100 text-blue-700", loss: false },
     { label: "Doanh thu tháng này", value: money(bd[1].rev), icon: "money", tone: "bg-indigo-100 text-indigo-700", loss: false },
     { label: "Lợi nhuận hôm nay", value: money(profitOf(bd[0])), loss: profitOf(bd[0]) < 0, icon: "trend", tone: "bg-emerald-100 text-emerald-700" },
