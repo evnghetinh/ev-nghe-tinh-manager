@@ -39,6 +39,7 @@ export default function QuotePage() {
   const [notice, setNotice] = useState("");
   const [ret, setRet] = useState<{ id: string; qty: string; reason: string } | null>(null);
   const [partsCost, setPartsCost] = useState(0);
+  const [showPay, setShowPay] = useState(false);
   const [pays, setPays] = useState<Pay[]>([]);
   const [newPay, setNewPay] = useState({ amount: "", method: "Tiền mặt", date: new Date().toLocaleDateString("sv-SE"), note: "" });
 
@@ -49,11 +50,11 @@ export default function QuotePage() {
     if (o.error) setError(o.error.message); else setOrder(o.data as unknown as Order);
     if (i.error) setError(i.error.message); else if (i.data) setItems((i.data as Item[]).map((x) => ({ ...x, qty: Number(x.qty), unit_price: Number(x.unit_price) })));
     if (p.data) setParts((p.data as Part[]).map((x) => ({ ...x, stock: Number(x.stock), he_so: Number(x.he_so) })));
+    const pm = await supabase.from("order_payments").select("id, loai, so_tien, hinh_thuc, ngay_thu, ghi_chu, da_huy, huy_ly_do, huy_boi_ten, huy_luc, created_by_name, created_at").eq("order_id", id).order("seq");
+    if (pm.data) setPays((pm.data as Pay[]).map((x) => ({ ...x, so_tien: Number(x.so_tien) })));
     if (role === "chu") {
       const l = await supabase.from("repair_edit_logs").select("id, action, ghi_chu, kind, item_name, qty, unit_price, total_before, total_after, created_by_name, created_at").eq("order_id", id).order("created_at", { ascending: false });
       if (l.data) setLogs(l.data as Log[]);
-      const pm = await supabase.from("order_payments").select("id, loai, so_tien, hinh_thuc, ngay_thu, ghi_chu, da_huy, huy_ly_do, huy_boi_ten, huy_luc, created_by_name, created_at").eq("order_id", id).order("seq");
-      if (pm.data) setPays((pm.data as Pay[]).map((x) => ({ ...x, so_tien: Number(x.so_tien) })));
       const c = await supabase.from("repair_items").select("kind, qty, repair_item_costs(cost_price)").eq("order_id", id);
       if (c.data) {
         type Row = { kind: string; qty: number; repair_item_costs: { cost_price: number } | { cost_price: number }[] | null };
@@ -161,11 +162,13 @@ export default function QuotePage() {
     setError("");
     const amount = Number(newPay.amount || 0);
     if (!(amount > 0)) return setError("Số tiền phải lớn hơn 0.");
+    if (!newPay.date) return setError("Hãy chọn ngày thu tiền.");
+    if (amount > conNo) return setError(`Số thu vượt số còn nợ (${money(conNo)}).`);
     setBusy(true);
     const r = await supabase.rpc("ghi_khoan_thu", { p_order: id, p_so_tien: amount, p_hinh_thuc: newPay.method, p_ngay: newPay.date, p_ghi_chu: newPay.note });
     setBusy(false);
     if (r.error) return setError(r.error.message);
-    setNewPay({ ...newPay, amount: "", note: "" }); setNotice("Đã ghi khoản thu mới."); load();
+    setNewPay({ ...newPay, amount: "", note: "" }); setShowPay(false); setNotice("Đã ghi khoản thu và vào sổ quỹ."); load();
   }
   function report(d: { truoc: number; sau: number }) {
     const diff = d.sau - d.truoc;
@@ -174,10 +177,11 @@ export default function QuotePage() {
 
   async function complete() {
     setError("");
-    if (!pay.date) return setError("Hãy chọn ngày thu tiền.");
-    if (!confirm(`Hoàn thành và thu ${money(partsTotal + laborTotal)} (${pay.method})? Kho phụ tùng sẽ bị trừ và không hoàn tác được.`)) return;
+    if (!pay.date) return setError("Hãy chọn ngày hoàn thành.");
+    const last = [...pays].reverse().find((p) => !p.da_huy && p.loai === "thu");
+    if (!confirm(`Hoàn thành phiếu?${conNo > 0 ? ` Còn nợ ${money(conNo)} sẽ được ghi nợ.` : ""} Kho phụ tùng sẽ bị trừ và không hoàn tác được.`)) return;
     setBusy(true);
-    const { error } = await supabase.rpc("hoan_thanh_phieu", { p_order: id, p_method: pay.method, p_date: pay.date });
+    const { error } = await supabase.rpc("hoan_thanh_phieu", { p_order: id, p_method: last?.hinh_thuc ?? "Tiền mặt", p_date: pay.date });
     setBusy(false);
     if (error) return setError(error.message);
     load();
@@ -192,7 +196,8 @@ export default function QuotePage() {
   const cancelled = !!order?.da_huy;
   const canEdit = !cancelled && (!done || (role === "chu" && editing));
   const thuRong = pays.filter((p) => !p.da_huy).reduce((s, p) => s + p.so_tien, 0);
-  const conThieu = Math.round(partsTotal + laborTotal - thuRong);
+  const conNo = Math.max(0, Math.round(partsTotal + laborTotal - thuRong));
+  const conThieu =Math.round(partsTotal + laborTotal - thuRong);
   const input = "w-full border px-3 py-2";
 
   return (
@@ -273,7 +278,7 @@ export default function QuotePage() {
 
       {cancelled ? null : done ? (
         <div className="bg-slate-100 rounded-xl p-4 text-sm space-y-3">
-          <div>Đã hoàn thành và thu tiền ({order?.payment_method}) ngày {order?.paid_at?.split("-").reverse().join("/")}. Kho đã được trừ.</div>
+          <div>Đã hoàn thành ngày {order?.paid_at?.split("-").reverse().join("/")}. Kho đã được trừ.{conNo > 0 ? ` Khách còn nợ ${money(conNo)}.` : ""}</div>
           {role === "chu" ? (
             editing ? (
               <div className="space-y-2">
@@ -286,12 +291,11 @@ export default function QuotePage() {
           ) : <p className="text-slate-500">Chỉ Chủ xưởng được sửa phiếu đã hoàn thành.</p>}
         </div>
       ) : (
-        <div className="card grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
-          <select className={input} value={pay.method} onChange={(e) => setPay({ ...pay, method: e.target.value })}>
-            <option>Tiền mặt</option><option>Chuyển khoản</option>
-          </select>
-          <input type="date" className={input} value={pay.date} onChange={(e) => setPay({ ...pay, date: e.target.value })} />
-          <button onClick={complete} disabled={busy || items.length === 0} className="btn-primary disabled:opacity-50">Hoàn thành và thu tiền</button>
+        <div className="card grid gap-3 sm:grid-cols-[1fr_auto] items-center">
+          <label className="text-sm flex items-center gap-2">Ngày hoàn thành
+            <input type="date" className={input} value={pay.date} onChange={(e) => setPay({ ...pay, date: e.target.value })} />
+          </label>
+          <button onClick={complete} disabled={busy || items.length === 0} className="btn-primary disabled:opacity-50">Hoàn thành{conNo > 0 && items.length > 0 ? ` (ghi nợ ${money(conNo)})` : ""}</button>
         </div>
       )}
 
@@ -299,10 +303,15 @@ export default function QuotePage() {
         <div className="flex justify-end"><button disabled={busy} onClick={cancelOrder} className="btn bg-red-600 text-white px-4 disabled:opacity-50">Hủy phiếu</button></div>
       )}
 
-      {role === "chu" && done && (
+      {(items.length > 0 || pays.length > 0) && (
         <section className="card space-y-3">
-          <h2 className="font-bold">Khoản thu</h2>
-          <p className="text-xs text-slate-500">Khoản thu không sửa, không xóa. Muốn sửa số tiền: hủy khoản thu (có lý do) rồi ghi khoản mới. Sửa phiếu sau khi thu sẽ tự thêm dòng điều chỉnh.</p>
+          <h2 className="font-bold">Thanh toán</h2>
+          <div className="grid grid-cols-3 gap-2 text-sm text-center">
+            <div className="rounded-lg bg-slate-100 p-2"><div className="text-slate-500">Tổng phiếu</div><b>{money(partsTotal + laborTotal)}</b></div>
+            <div className="rounded-lg bg-green-50 p-2"><div className="text-slate-500">Đã thu</div><b className="text-green-700">{money(thuRong)}</b></div>
+            <div className={`rounded-lg p-2 ${conNo > 0 ? "bg-amber-50" : "bg-green-50"}`}><div className="text-slate-500">Còn nợ</div><b className={conNo > 0 ? "text-amber-700" : "text-green-700"}>{money(conNo)}</b></div>
+          </div>
+          {conThieu < 0 && <p className="text-sm text-amber-700">Thu dư {money(-conThieu)} so với tổng phiếu.</p>}
           <ul className="space-y-2">
             {pays.map((p) => (
               <li key={p.id} className={`border rounded-lg p-3 text-sm space-y-1 ${p.da_huy ? "bg-slate-50 text-slate-400" : ""}`}>
@@ -313,29 +322,26 @@ export default function QuotePage() {
                 {p.ghi_chu && <div>{p.ghi_chu}</div>}
                 <div className="text-xs">Ghi bởi {p.created_by_name ?? "Không rõ"} · {new Date(p.created_at).toLocaleString("vi-VN")}</div>
                 {p.da_huy && <div className="text-xs text-red-600">Đã hủy bởi {p.huy_boi_ten ?? "Không rõ"} lúc {p.huy_luc ? new Date(p.huy_luc).toLocaleString("vi-VN") : ""} · Lý do: {p.huy_ly_do}</div>}
-                {!p.da_huy && p.loai === "thu" && !cancelled && <button disabled={busy} onClick={() => cancelPay(p)} className="bare text-red-600 text-sm min-h-11">Hủy khoản thu</button>}
+                {role === "chu" && !p.da_huy && p.loai === "thu" && !cancelled && <button disabled={busy} onClick={() => cancelPay(p)} className="bare text-red-600 text-sm min-h-11">Hủy khoản thu</button>}
               </li>
             ))}
-            {pays.length === 0 && <li className="text-sm text-slate-500">Chưa có khoản thu nào.</li>}
+            {pays.length === 0 && <li className="text-sm text-slate-500">Chưa có lần thu nào.</li>}
           </ul>
-          <div className="text-sm flex justify-between"><span>Tổng đã thu (không tính khoản đã hủy)</span><b>{money(thuRong)}</b></div>
-          {!cancelled && (
-            <>
-              <div className={`text-sm ${conThieu === 0 ? "text-green-700" : "text-amber-700"}`}>
-                {conThieu === 0 ? "Đã thu đủ theo tổng phiếu." : conThieu > 0 ? `Còn thiếu ${money(conThieu)} so với tổng phiếu.` : `Thu dư ${money(-conThieu)} so với tổng phiếu.`}
+          {!cancelled && conNo > 0 && !showPay && (
+            <button onClick={() => { setNewPay({ ...newPay, amount: String(conNo) }); setShowPay(true); }} className="btn-primary">Thu tiền</button>
+          )}
+          {!cancelled && showPay && (
+            <form onSubmit={addPay} className="grid gap-2 sm:grid-cols-2 border-t pt-3">
+              <div className="sm:col-span-2 font-medium text-sm">Thu tiền (tối đa {money(conNo)})</div>
+              <input required inputMode="numeric" aria-label="Số tiền thu" placeholder="Số tiền (đ)" className={input} value={newPay.amount} onChange={(e) => setNewPay({ ...newPay, amount: digits(e.target.value) })} />
+              <select aria-label="Hình thức" className={input} value={newPay.method} onChange={(e) => setNewPay({ ...newPay, method: e.target.value })}><option>Tiền mặt</option><option>Chuyển khoản</option></select>
+              <input type="date" aria-label="Ngày thu" className={input} value={newPay.date} onChange={(e) => setNewPay({ ...newPay, date: e.target.value })} />
+              <input placeholder="Ghi chú" className={input} value={newPay.note} onChange={(e) => setNewPay({ ...newPay, note: e.target.value })} />
+              <div className="sm:col-span-2 flex gap-2">
+                <button disabled={busy} className="btn-primary disabled:opacity-50">Ghi khoản thu</button>
+                <button type="button" onClick={() => setShowPay(false)} className="btn-secondary px-3">Đóng</button>
               </div>
-              <form onSubmit={addPay} className="grid gap-2 sm:grid-cols-2 border-t pt-3">
-                <div className="sm:col-span-2 font-medium text-sm">Ghi khoản thu mới</div>
-                <input required inputMode="numeric" placeholder="Số tiền (đ)" className={input} value={newPay.amount} onChange={(e) => setNewPay({ ...newPay, amount: digits(e.target.value) })} />
-                <select className={input} value={newPay.method} onChange={(e) => setNewPay({ ...newPay, method: e.target.value })}><option>Tiền mặt</option><option>Chuyển khoản</option></select>
-                <input type="date" className={input} value={newPay.date} onChange={(e) => setNewPay({ ...newPay, date: e.target.value })} />
-                <input placeholder="Ghi chú" className={input} value={newPay.note} onChange={(e) => setNewPay({ ...newPay, note: e.target.value })} />
-                <div className="sm:col-span-2 flex gap-2 flex-wrap">
-                  {conThieu > 0 && <button type="button" onClick={() => setNewPay({ ...newPay, amount: String(conThieu) })} className="btn-secondary text-sm px-3">Điền số còn thiếu ({money(conThieu)})</button>}
-                  <button disabled={busy} className="btn-primary disabled:opacity-50">Ghi khoản thu</button>
-                </div>
-              </form>
-            </>
+            </form>
           )}
         </section>
       )}
