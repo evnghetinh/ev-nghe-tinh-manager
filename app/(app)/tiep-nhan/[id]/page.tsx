@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { money, digits, qtyText, decimalInput, toNum, COT_PHU_TUNG, tonText, type DonVi } from "@/lib/format";
+import { tenXe, namMauXe, money, digits, qtyText, decimalInput, toNum, COT_PHU_TUNG, tonText, type DonVi } from "@/lib/format";
 import { useRole } from "@/lib/role";
 import { StatusBadge, Toast } from "@/components/ui";
 import Photos from "./photos";
@@ -18,7 +18,7 @@ type Past = { id: string; code: number; received_at: string; odometer: number | 
 type Log = { id: string; action: "them" | "xoa" | "tra"; ghi_chu: string | null; kind: "part" | "labor"; item_name: string; qty: number; unit_price: number; total_before: number; total_after: number; created_by_name: string | null; created_at: string };
 type Pay = { id: string; loai: "thu" | "dieu_chinh" | "dao"; so_tien: number; hinh_thuc: string; ngay_thu: string; ghi_chu: string | null; da_huy: boolean; huy_ly_do: string | null; huy_boi_ten: string | null; huy_luc: string | null; created_by_name: string | null; created_at: string };
 const LOAI_THU: Record<string, string> = { thu: "Khoản thu", dieu_chinh: "Điều chỉnh", dao: "Đảo (hủy phiếu)" };
-type Order = { code: number; issue: string; status: string; payment_method: string | null; paid_at: string | null; stock_deducted: boolean; da_huy: boolean; huy_ly_do: string | null; huy_boi_ten: string | null; huy_luc: string | null; odometer: number | null; vehicles: { plate: string } | null; customers: { name: string; phone: string | null; address: string | null } | null };
+type Order = { code: number; issue: string; status: string; payment_method: string | null; paid_at: string | null; stock_deducted: boolean; da_huy: boolean; huy_ly_do: string | null; huy_boi_ten: string | null; huy_luc: string | null; odometer: number | null; vehicles: { plate: string; hang_xe: string | null; dong_xe: string | null; nam_san_xuat: number | null; mau_xe: string | null } | null; customers: { name: string; phone: string | null; address: string | null } | null };
 
 export default function QuotePage() {
   const { id } = useParams<{ id: string }>();
@@ -44,7 +44,7 @@ export default function QuotePage() {
   const [newPay, setNewPay] = useState({ amount: "", method: "Tiền mặt", date: new Date().toLocaleDateString("sv-SE"), note: "" });
 
   const load = useCallback(async () => {
-    const o = await supabase.from("repair_orders").select("code, issue, status, payment_method, paid_at, stock_deducted, da_huy, huy_ly_do, huy_boi_ten, huy_luc, odometer, vehicles(plate), customers(name, phone, address)").eq("id", id).single();
+    const o = await supabase.from("repair_orders").select("code, issue, status, payment_method, paid_at, stock_deducted, da_huy, huy_ly_do, huy_boi_ten, huy_luc, odometer, vehicles(plate, hang_xe, dong_xe, nam_san_xuat, mau_xe), customers(name, phone, address)").eq("id", id).single();
     const i = await supabase.rpc("dong_bao_gia", { p_order: id });
     const p = await supabase.from("parts").select(COT_PHU_TUNG).eq("is_hidden", false).order("name");
     if (o.error) setError(o.error.message); else setOrder(o.data as unknown as Order);
@@ -208,7 +208,8 @@ export default function QuotePage() {
       </div>
       {order && (
         <div className="card border-l-4 border-brand-500">
-          <div className="flex justify-between gap-2 items-start"><h1 className={`text-xl font-bold text-navy-900 ${cancelled ? "line-through text-slate-400" : ""}`}>Báo giá PT{String(order.code).padStart(4, "0")} · {order.vehicles?.plate}</h1><StatusBadge status={order.status} /></div>
+          <div className="flex justify-between gap-2 items-start"><h1 className={`text-xl font-bold text-navy-900 ${cancelled ? "line-through text-slate-400" : ""}`}>Báo giá PT{String(order.code).padStart(4, "0")} · {order.vehicles?.plate}{tenXe(order.vehicles) ? ` · ${tenXe(order.vehicles)}` : ""}</h1><StatusBadge status={order.status} /></div>
+          {namMauXe(order.vehicles) && <p className="text-sm text-slate-500">Xe: {[tenXe(order.vehicles), namMauXe(order.vehicles)].filter(Boolean).join(" · ")}</p>}
           <p className="text-sm text-slate-500">{order.customers?.name}{order.customers?.phone ? ` (${order.customers.phone})` : ""}</p>
           {order.customers?.address && <p className="text-sm text-slate-500">Địa chỉ: {order.customers.address}</p>}
           {order.odometer != null && <p className="text-sm text-slate-500">Số km: {new Intl.NumberFormat("vi-VN").format(order.odometer)} km</p>}
@@ -374,7 +375,7 @@ export default function QuotePage() {
       <Photos orderId={id} />
 
       <section className="card space-y-3">
-        <h2 className="font-bold">Lịch sử sửa chữa của xe này</h2>
+        <h2 className="font-bold">Lịch sử sửa chữa của xe này{tenXe(order?.vehicles) ? ` (${order?.vehicles?.plate} · ${tenXe(order?.vehicles)})` : ""}</h2>
         {past === null ? <p className="text-sm text-slate-500">Đang tải...</p> : (
           <>
             <p className="text-sm text-slate-600">Tổng số lượt xe đã vào xưởng: <b>{past.length + 1}</b>{past.length === 0 ? " (đây là lần đầu)" : ""}</p>

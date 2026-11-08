@@ -7,6 +7,8 @@ import { useRole, roleLabel, type Role } from "@/lib/role";
 type Tk = { tk_id: string; tk_email: string; tk_vai_tro: Role | null; tk_ten: string | null; tk_ten_tam: boolean };
 type Ktv = { id: string; ten: string; dang_lam: boolean };
 type Mau = { id: string; thu_tu: number; ten: string };
+type Hang = { id: string; ten: string };
+type Dong = { id: string; hang_id: string; ten: string };
 
 const input = "w-full border px-3 py-2";
 
@@ -17,16 +19,24 @@ export default function SettingsPage() {
   const [maus, setMaus] = useState<Mau[]>([]);
   const [newKtv, setNewKtv] = useState("");
   const [newMau, setNewMau] = useState("");
+  const [hangs, setHangs] = useState<Hang[]>([]);
+  const [dongs, setDongs] = useState<Dong[]>([]);
+  const [newHang, setNewHang] = useState("");
+  const [newDong, setNewDong] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
-    const [a, b, c] = await Promise.all([
+    const [a, b, c, h, d] = await Promise.all([
       supabase.rpc("ds_tai_khoan"),
       supabase.from("ev_ky_thuat_vien").select("id, ten, dang_lam").order("ten"),
       supabase.from("ev_kt_mau").select("id, thu_tu, ten").order("thu_tu").order("ten"),
+      supabase.from("xe_hang").select("id, ten").order("ten"),
+      supabase.from("xe_dong").select("id, hang_id, ten").order("ten"),
     ]);
     const err = a.error || b.error || c.error;
     if (err) return setError(err.message + " (đã chạy giai-doan-12.sql chưa?)");
+    if (h.error || d.error) setError((h.error || d.error)!.message + " (đã chạy giai-doan-25.sql chưa?)");
+    setHangs((h.data ?? []) as Hang[]); setDongs((d.data ?? []) as Dong[]);
     setTks(a.data as Tk[]); setKtvs(b.data as Ktv[]); setMaus(c.data as Mau[]);
   }, []);
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -83,6 +93,40 @@ export default function SettingsPage() {
           {ktvs.length === 0 && <li><EmptyState icon={<Icon name="users" />} text="Chưa có kỹ thuật viên. Nhập tên ở ô phía trên để thêm." /></li>}
         </ul>
         <p className="text-xs text-slate-500">Người đã được gán vào phiếu thì không xóa được; hãy bấm &quot;Cho nghỉ&quot; (vẫn hiện trên phiếu cũ).</p>
+      </section>
+
+      <section className="card space-y-3">
+        <h2 className="font-bold text-navy-900">Hãng xe và dòng xe (gợi ý khi nhập xe)</h2>
+        <p className="text-sm text-slate-500">Khi nhập tay một dòng xe mới, hệ thống tự thêm vào đây. Sửa hoặc xóa ở đây không làm đổi xe đã lưu.</p>
+        <form className="grid gap-2 grid-cols-[1fr_auto]" onSubmit={async (e) => { e.preventDefault(); if (newHang.trim() && await run(supabase.from("xe_hang").insert({ ten: newHang.trim() }))) setNewHang(""); }}>
+          <input placeholder="Tên hãng mới (VD: Yadea)" className={input} value={newHang} onChange={(e) => setNewHang(e.target.value)} />
+          <button className="btn-primary">Thêm hãng</button>
+        </form>
+        <ul className="space-y-3">
+          {hangs.map((h) => (
+            <li key={h.id} className="border border-slate-200 rounded-xl p-3 space-y-2">
+              <div className="flex gap-2 items-center">
+                <input className={`${input} font-semibold`} defaultValue={h.ten} key={h.id + h.ten}
+                  onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== h.ten && run(supabase.from("xe_hang").update({ ten: e.target.value.trim() }).eq("id", h.id))} />
+                <button onClick={() => confirm(`Xóa hãng "${h.ten}" và các dòng xe của hãng này khỏi danh sách gợi ý? Xe đã lưu không bị ảnh hưởng.`) && run(supabase.from("xe_hang").delete().eq("id", h.id))} className="bare text-sm text-red-600 shrink-0 px-2 min-h-11">Xóa hãng</button>
+              </div>
+              <ul className="space-y-2 pl-3 border-l-2 border-slate-200">
+                {dongs.filter((d) => d.hang_id === h.id).map((d) => (
+                  <li key={d.id} className="flex gap-2 items-center">
+                    <input className={input} defaultValue={d.ten} key={d.id + d.ten}
+                      onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== d.ten && run(supabase.from("xe_dong").update({ ten: e.target.value.trim() }).eq("id", d.id))} />
+                    <button onClick={() => confirm(`Xóa dòng "${d.ten}"?`) && run(supabase.from("xe_dong").delete().eq("id", d.id))} className="bare text-sm text-red-600 shrink-0 px-2 min-h-11">Xóa</button>
+                  </li>
+                ))}
+              </ul>
+              <form className="grid gap-2 grid-cols-[1fr_auto]" onSubmit={async (e) => { e.preventDefault(); const t = (newDong[h.id] ?? "").trim(); if (t && await run(supabase.from("xe_dong").insert({ hang_id: h.id, ten: t }))) setNewDong((m) => ({ ...m, [h.id]: "" })); }}>
+                <input placeholder={`Thêm dòng xe của ${h.ten}`} className={input} value={newDong[h.id] ?? ""} onChange={(e) => setNewDong((m) => ({ ...m, [h.id]: e.target.value }))} />
+                <button className="btn-secondary">Thêm dòng</button>
+              </form>
+            </li>
+          ))}
+          {hangs.length === 0 && <li><EmptyState icon={<Icon name="car" />} text="Chưa có hãng xe. Nhập tên hãng ở ô phía trên (hoặc chạy giai-doan-25.sql)." /></li>}
+        </ul>
       </section>
 
       <section className="card space-y-3">

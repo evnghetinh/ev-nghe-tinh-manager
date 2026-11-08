@@ -28,3 +28,10 @@ export function tonText(stock: number, p: DonVi): string {
   const nhap = `${qtyText(whole)} ${p.don_vi_nhap}`;
   return rem > 0 ? `${ban} (khoảng ${nhap} ${qtyText(rem)} ${p.don_vi_ban})` : `${ban} (${nhap})`;
 }
+
+// Hãng + dòng xe: "VinFast VF5" (bỏ trống thì trả chuỗi rỗng)
+export const tenXe = (v: { hang_xe?: string | null; dong_xe?: string | null } | null | undefined) =>
+  [v?.hang_xe, v?.dong_xe].map((x) => (x ?? "").trim()).filter(Boolean).join(" ");
+// Năm, màu: "2023 · Trắng"
+export const namMauXe = (v: { nam_san_xuat?: number | null; mau_xe?: string | null } | null | undefined) =>
+  [v?.nam_san_xuat ? String(v.nam_san_xuat) : "", (v?.mau_xe ?? "").trim()].filter(Boolean).join(" · ");

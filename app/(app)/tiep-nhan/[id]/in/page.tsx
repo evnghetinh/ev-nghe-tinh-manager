@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { money, qtyText } from "@/lib/format";
+import { money, qtyText, tenXe } from "@/lib/format";
 import { GARA } from "@/lib/gara";
 
 type Item = { id: string; kind: "part" | "labor"; name: string; qty: number; unit_price: number; don_vi: string | null };
@@ -11,7 +11,7 @@ const lineTotal = (i: { qty: number; unit_price: number }) => Math.round(i.qty *
 type Dtc = { ma: string; ghi_chu: string | null; sau_sua: string | null };
 type Kt = { ten: string; ket_qua: "dat" | "khong_dat" | null; ghi_chu: string | null; nguoi_kt_ten: string | null; kt_luc: string | null };
 type Pay = { id: string; loai: string; so_tien: number; hinh_thuc: string; ngay_thu: string; da_huy: boolean };
-type Order = { stock_deducted: boolean; da_huy: boolean; huy_ly_do: string | null; received_at: string | null; soc_nhan: number | null; soh_nhan: number | null; pin_ghi_chu: string | null; nguyen_nhan: string | null; tiep_nhan_ten: string | null; kt_bo_qua_ly_do: string | null; code: number; odometer: number | null; issue: string; created_at: string; vehicles: { plate: string; vin: string | null; vehicle_type: string | null } | null; customers: { name: string; phone: string | null; address: string | null } | null };
+type Order = { stock_deducted: boolean; da_huy: boolean; huy_ly_do: string | null; received_at: string | null; soc_nhan: number | null; soh_nhan: number | null; pin_ghi_chu: string | null; nguyen_nhan: string | null; tiep_nhan_ten: string | null; kt_bo_qua_ly_do: string | null; code: number; odometer: number | null; issue: string; created_at: string; vehicles: { plate: string; vin: string | null; vehicle_type: string | null; hang_xe: string | null; dong_xe: string | null; nam_san_xuat: number | null; mau_xe: string | null } | null; customers: { name: string; phone: string | null; address: string | null } | null };
 
 export default function PrintQuote() {
   const { id } = useParams<{ id: string }>();
@@ -30,7 +30,7 @@ export default function PrintQuote() {
     // Luôn đọc lại dữ liệu mới nhất: mỗi lần mở trang và mỗi lần quay lại tab / trang từ bộ nhớ đệm.
     async function load() {
       // Chỉ lấy giá bán, không đụng tới giá nhập/giá vốn/lợi nhuận/sổ quỹ.
-      const o = await supabase.from("repair_orders").select("stock_deducted, da_huy, huy_ly_do, received_at, soc_nhan, soh_nhan, pin_ghi_chu, nguyen_nhan, tiep_nhan_ten, kt_bo_qua_ly_do, code, odometer, issue, created_at, vehicles(plate, vin, vehicle_type), customers(name, phone, address)").eq("id", id).single();
+      const o = await supabase.from("repair_orders").select("stock_deducted, da_huy, huy_ly_do, received_at, soc_nhan, soh_nhan, pin_ghi_chu, nguyen_nhan, tiep_nhan_ten, kt_bo_qua_ly_do, code, odometer, issue, created_at, vehicles(plate, vin, vehicle_type, hang_xe, dong_xe, nam_san_xuat, mau_xe), customers(name, phone, address)").eq("id", id).single();
       const i = await supabase.rpc("dong_bao_gia", { p_order: id });
       const [t, d, k, pm, raw] = await Promise.all([
         supabase.from("ev_phieu_ky_thuat_vien").select("ev_ky_thuat_vien(ten)").eq("order_id", id),
@@ -76,6 +76,9 @@ export default function PrintQuote() {
     ["Địa chỉ", order.customers?.address],
     ["Biển số xe", order.vehicles?.plate],
     ["Loại xe", order.vehicles?.vehicle_type],
+    ["Hãng / dòng xe", tenXe(order.vehicles)],
+    ["Năm sản xuất", order.vehicles?.nam_san_xuat ? String(order.vehicles.nam_san_xuat) : null],
+    ["Màu xe", order.vehicles?.mau_xe],
     ["Số khung", order.vehicles?.vin],
     ["Số km", order.odometer != null ? `${new Intl.NumberFormat("vi-VN").format(order.odometer)} km` : null],
     ["SOC lúc nhận", order.soc_nhan != null ? `${order.soc_nhan}%` : null],

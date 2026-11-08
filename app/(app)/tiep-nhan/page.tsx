@@ -5,12 +5,14 @@ import { useSearchParams } from "next/navigation";
 import { EmptyState, Icon, LoadingBlock, PageTitle, StatusBadge, Toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { useRole } from "@/lib/role";
+import { ChonHangDong, useGoiYXe } from "@/components/xe-chon";
+import { namMauXe, tenXe } from "@/lib/format";
 
-type Order = { id: string; code: number; customer_id: string; received_at: string; odometer: number | null; issue: string; status: string; note: string | null; stock_deducted: boolean; da_huy: boolean; vehicles: { plate: string; model: string | null } | null; customers: { name: string; phone: string | null } | null };
-type Veh = { id: string; customer_id: string; plate: string; vehicle_type: string | null; customers: { name: string; phone: string | null } | null };
+type Order = { id: string; code: number; customer_id: string; received_at: string; odometer: number | null; issue: string; status: string; note: string | null; stock_deducted: boolean; da_huy: boolean; vehicles: { plate: string; model: string | null; hang_xe: string | null; dong_xe: string | null } | null; customers: { name: string; phone: string | null } | null };
+type Veh = { id: string; customer_id: string; plate: string; vehicle_type: string | null; hang_xe: string | null; dong_xe: string | null; nam_san_xuat: number | null; mau_xe: string | null; customers: { name: string; phone: string | null } | null };
 type Cust = { id: string; name: string; phone: string | null };
 const TYPES = ["Xe máy điện", "Xe đạp điện", "Ô tô điện", "Xe ba bánh điện", "Khác"];
-const emptyNew = { plate: "", type: TYPES[0], vin: "", name: "", phone: "", address: "" };
+const emptyNew = { plate: "", type: TYPES[0], vin: "", hang: "", dong: "", nam: "", mau: "", name: "", phone: "", address: "" };
 // bỏ dấu tiếng Việt, hoa/thường và mọi ký tự không phải chữ/số (dấu cách, chấm, gạch...)
 const squash = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/gi, "d").toLowerCase().replace(/[^a-z0-9]/g, "");
 const STATUS = ["Chờ xử lý", "Đang sửa", "Hoàn thành", "Đã giao xe", "Đã hủy"];
@@ -28,6 +30,7 @@ export default function OrdersPage() {
   const [isNew, setIsNew] = useState(false);
   const [nv, setNv] = useState(emptyNew);
   const [busy, setBusy] = useState(false);
+  const [goiY, loadGoiY] = useGoiYXe();
   const [form, setForm] = useState(empty);
   const [filter, setFilter] = useState("");
   const [ktvs, setKtvs] = useState<Ktv[]>([]);
@@ -39,8 +42,8 @@ export default function OrdersPage() {
   const tim = useSearchParams().get("tim") ?? "";
 
   const load = useCallback(async () => {
-    const o = await supabase.from("repair_orders").select("*, vehicles(plate, model), customers(name, phone)").order("created_at", { ascending: false });
-    const v = await supabase.from("vehicles").select("id, customer_id, plate, vehicle_type, customers(name, phone)").order("plate");
+    const o = await supabase.from("repair_orders").select("*, vehicles(plate, model, hang_xe, dong_xe), customers(name, phone)").order("created_at", { ascending: false });
+    const v = await supabase.from("vehicles").select("id, customer_id, plate, vehicle_type, hang_xe, dong_xe, nam_san_xuat, mau_xe, customers(name, phone)").order("plate");
     const c = await supabase.from("customers").select("id, name, phone");
     if (c.data) setCusts(c.data as Cust[]);
     if (o.error) setError(o.error.message); else setList(o.data as unknown as Order[]);
@@ -70,6 +73,7 @@ export default function OrdersPage() {
         if (!squash(plate)) return setError("Hãy nhập biển số.");
         if (!nv.name.trim()) return setError("Hãy nhập tên khách.");
         if (!phoneKey) return setError("Hãy nhập số điện thoại.");
+        if (nv.nam && (Number(nv.nam) < 1950 || Number(nv.nam) > 2100)) return setError("Năm sản xuất không hợp lệ.");
         const dup = vehs.find((v) => squash(v.plate) === squash(plate));
         if (dup) {
           pickVeh(dup);
@@ -77,7 +81,8 @@ export default function OrdersPage() {
         }
         const oldCust = custs.find((c) => (c.phone ?? "").replace(/\D/g, "") === phoneKey);
         if (oldCust && !confirm(`Số điện thoại này đã có khách "${oldCust.name}". Dùng lại khách này cho xe mới?\n\nOK = dùng khách cũ, Hủy = quay lại sửa.`)) return;
-        const r = await supabase.rpc("tao_khach_xe", { p_bien_so: plate, p_loai_xe: nv.type, p_vin: nv.vin, p_ten: nv.name, p_sdt: nv.phone, p_dia_chi: nv.address, p_khach_id: oldCust?.id ?? null });
+        const r = await supabase.rpc("tao_khach_xe", { p_bien_so: plate, p_loai_xe: nv.type, p_vin: nv.vin, p_ten: nv.name, p_sdt: nv.phone, p_dia_chi: nv.address, p_khach_id: oldCust?.id ?? null, p_hang: nv.hang, p_dong: nv.dong, p_nam: nv.nam ? Number(nv.nam) : null, p_mau: nv.mau });
+        if (!r.error) loadGoiY();
         if (r.error) return setError(r.error.message);
         const out = r.data as { xe_id: string; khach_id: string; xe_co_san: boolean };
         if (out.xe_co_san) {
@@ -91,7 +96,7 @@ export default function OrdersPage() {
   }
   function pickVeh(v: Veh) {
     setForm((f) => ({ ...f, vehicle_id: v.id })); setIsNew(false); setOpen(false);
-    setQ(`${v.plate} - ${v.customers?.name ?? ""}`);
+    setQ(`${v.plate}${tenXe(v) ? ` · ${tenXe(v)}` : ""} - ${v.customers?.name ?? ""}`);
   }
   async function createOrder(vehicleId: string, customerId: string) {
     const { data: created, error } = await supabase.from("repair_orders").insert({
@@ -129,11 +134,11 @@ export default function OrdersPage() {
 
   const tokens = q.trim().split(/\s+/).map(squash).filter(Boolean);
   const matches = vehs.filter((v) => {
-    const h = squash(`${v.plate} ${v.vehicle_type ?? ""} ${v.customers?.name ?? ""} ${v.customers?.phone ?? ""}`);
+    const h = squash(`${v.plate} ${v.vehicle_type ?? ""} ${tenXe(v)} ${v.customers?.name ?? ""} ${v.customers?.phone ?? ""}`);
     return tokens.every((t) => h.includes(t));
   }).slice(0, 30);
   const timTokens = tim.trim().split(/s+/).map(squash).filter(Boolean);
-  const shown = list.filter((o) => (!filter || o.status === filter) && timTokens.every((t) => squash(`PT${String(o.code).padStart(4, "0")} ${o.vehicles?.plate ?? ""} ${o.customers?.name ?? ""} ${o.customers?.phone ?? ""} ${o.issue}`).includes(t)));
+  const shown = list.filter((o) => (!filter || o.status === filter) && timTokens.every((t) => squash(`PT${String(o.code).padStart(4, "0")} ${o.vehicles?.plate ?? ""} ${tenXe(o.vehicles)} ${o.vehicles?.model ?? ""} ${o.customers?.name ?? ""} ${o.customers?.phone ?? ""} ${o.issue}`).includes(t)));
   const input = "w-full border px-3 py-2";
 
   return (
@@ -142,7 +147,7 @@ export default function OrdersPage() {
       <form onSubmit={save} className="card grid gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2 space-y-2">
           <div className="relative">
-            <input placeholder="Gõ biển số, tên khách hoặc số điện thoại để tìm xe *" className={input} value={q} autoComplete="off"
+            <input placeholder="Gõ biển số, hãng/dòng xe (vf5), tên khách hoặc SĐT để tìm xe *" className={input} value={q} autoComplete="off"
               onFocus={() => setOpen(true)}
               onChange={(e) => { setQ(e.target.value); setOpen(true); setForm({ ...form, vehicle_id: "" }); }} />
             {open && !isNew && (
@@ -150,7 +155,7 @@ export default function OrdersPage() {
                 {matches.map((v) => (
                   <li key={v.id}>
                     <button type="button" onClick={() => pickVeh(v)} className="w-full text-left px-3 py-2 border-b hover:bg-green-50">
-                      <div className="font-medium">{v.plate} <span className="text-sm font-normal text-slate-500">· {v.vehicle_type ?? "Xe"}</span></div>
+                      <div className="font-medium">{v.plate}{tenXe(v) ? ` · ${tenXe(v)}` : ""} <span className="text-sm font-normal text-slate-500">· {v.vehicle_type ?? "Xe"}{namMauXe(v) ? ` · ${namMauXe(v)}` : ""}</span></div>
                       <div className="text-sm text-slate-500">{v.customers?.name}{v.customers?.phone ? ` · ${v.customers.phone}` : ""}</div>
                     </button>
                   </li>
@@ -171,6 +176,9 @@ export default function OrdersPage() {
               </div>
               <input required placeholder="Biển số *" className={input} value={nv.plate} onChange={(e) => setNv({ ...nv, plate: e.target.value })} />
               <select className={input} value={nv.type} onChange={(e) => setNv({ ...nv, type: e.target.value })}>{TYPES.map((t) => <option key={t}>{t}</option>)}</select>
+              <ChonHangDong hang={nv.hang} dong={nv.dong} goiY={goiY} onChange={(h, d) => setNv((x) => ({ ...x, hang: h, dong: d }))} />
+              <input placeholder="Năm sản xuất (không bắt buộc)" inputMode="numeric" className={input} value={nv.nam} onChange={(e) => setNv({ ...nv, nam: e.target.value.replace(/D/g, "").slice(0, 4) })} />
+              <input placeholder="Màu xe (không bắt buộc)" className={input} value={nv.mau} onChange={(e) => setNv({ ...nv, mau: e.target.value })} />
               <input placeholder="Số khung / VIN (không bắt buộc)" className={`${input} sm:col-span-2`} value={nv.vin} onChange={(e) => setNv({ ...nv, vin: e.target.value })} />
               <input required placeholder="Tên khách *" className={input} value={nv.name} onChange={(e) => setNv({ ...nv, name: e.target.value })} />
               <input required placeholder="Số điện thoại *" inputMode="tel" className={input} value={nv.phone} onChange={(e) => setNv({ ...nv, phone: e.target.value })} />
@@ -218,7 +226,7 @@ export default function OrdersPage() {
           <li key={o.id} className="card space-y-2">
             <Link href={`/tiep-nhan/${o.id}`} className="block space-y-2">
               <div className="flex justify-between gap-2">
-                <div className={`font-semibold text-navy-900 ${o.da_huy ? "line-through text-slate-400" : ""}`}>PT{String(o.code).padStart(4, "0")} · {o.vehicles?.plate}</div>
+                <div className={`font-semibold text-navy-900 ${o.da_huy ? "line-through text-slate-400" : ""}`}>PT{String(o.code).padStart(4, "0")} · {o.vehicles?.plate}{tenXe(o.vehicles) ? ` · ${tenXe(o.vehicles)}` : ""}</div>
                 <StatusBadge status={o.status} />
               </div>
               <div className={`text-sm ${o.da_huy ? "line-through text-slate-400" : ""}`}>{o.issue}</div>
