@@ -21,6 +21,7 @@ const HANH_DONG: Record<string, string> = {
   khach_tra: "Khách trả hàng", khach_tra_hang: "Khách trả hàng", kiem_ke: "Kiểm kê điều chỉnh", huy_nhap_hang: "Hủy nhập hàng",
   doi_don_vi: "Đổi đơn vị", ton_dau: "Tồn đầu kỳ", sua_lan_nhap: "Sửa lần nhập", huy_lan_nhap: "Hủy lần nhập",
   sua_thong_tin_ev: "Sửa thông tin EV", khoi_tao: "Khởi tạo",
+  thiet_lap_quy: "Nhập số dư đầu kỳ quỹ", phieu_thu: "Phiếu thu", phieu_chi: "Phiếu chi", chuyen_quy: "Chuyển quỹ", kiem_quy: "Kiểm quỹ", huy_giao_dich_quy: "Hủy giao dịch sổ quỹ",
 };
 const hd = (k: string) => HANH_DONG[k] ?? k;
 const VAI_TRO: Record<string, string> = { chu: "Chủ xưởng", nhan_vien: "Nhân viên" };
@@ -33,7 +34,7 @@ const KEY: Record<string, string> = {
   soc_nhan: "SOC", soh_nhan: "SOH", pin_ghi_chu: "Ghi chú pin", nguyen_nhan: "Nguyên nhân", ten: "Tên", role: "Vai trò", is_hidden: "Ẩn",
   category: "Hạng mục", contributor: "Người góp", spent_on: "Ngày chi", contributed_on: "Ngày góp", month: "Tháng", start_date: "Ngày bắt đầu", paid_by: "Người chi",
   imported_on: "Ngày nhập", supplier: "Nhà cung cấp", item_count: "Số món", total: "Tổng", stock: "Tồn", min_stock: "Tồn tối thiểu", he_so: "Hệ số",
-  don_vi_nhap: "Đơn vị nhập", don_vi_ban: "Đơn vị bán", payment: "Thu", so_khoan: "Số khoản",
+  don_vi_nhap: "Đơn vị nhập", don_vi_ban: "Đơn vị bán", payment: "Thu", so_khoan: "Số khoản", so_du_dau: "Số dư đầu kỳ", ngay_bat_dau: "Ngày bắt đầu", quy: "Quỹ", loai_chi: "Loại chi", tinh_vao_lai_lo: "Tính vào lãi lỗ", doi_tuong: "Đối tượng", danh_muc: "Danh mục", tu: "Từ quỹ", den: "Sang quỹ", so_du_so: "Số dư theo sổ", so_du_thuc_te: "Thực tế", chenh_lech: "Chênh lệch", so_dong_dao: "Số dòng đảo",
 };
 const AN = new Set(["id", "order_id", "vehicle_id", "customer_id", "part_id", "item_id", "import_id", "created_by", "huy_boi", "user_id", "seq", "ref_id", "tiep_nhan_boi", "created_by_name", "created_at", "received_at"]);
 
