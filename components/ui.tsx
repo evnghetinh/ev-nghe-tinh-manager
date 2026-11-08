@@ -22,6 +22,7 @@ const STATUS_STYLE: Record<string, string> = {
   "Đang sửa": "bg-blue-100 text-blue-800",
   "Hoàn thành": "bg-emerald-100 text-emerald-800",
   "Đã giao xe": "bg-slate-200 text-slate-700",
+  "Đã hủy": "bg-red-100 text-red-700 line-through",
 };
 export function StatusBadge({ status }: { status: string }) {
   return <span className={`badge shrink-0 ${STATUS_STYLE[status] ?? "bg-slate-100 text-slate-700"}`}>{status}</span>;
@@ -86,6 +87,7 @@ const icons: Record<string, React.ReactNode> = {
   trend: <path d="m3 17 6-6 4 4 8-9M15 6h6v6" />,
   wrench: <path d="M14.5 6.5a4 4 0 0 0 5 5L10 21a2.1 2.1 0 0 1-3-3l9.5-9.5Z" />,
   alert: <path d="M12 3 2 20h20L12 3Zm0 6v5m0 3v.5" />,
+  history: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5" /><path d="M12 7v5l3 2" /></>,
 };
 export function Icon({ name, className = "w-5 h-5" }: { name: keyof typeof icons | string; className?: string }) {
   return <svg viewBox="0 0 24 24" className={className} {...P} aria-hidden>{icons[name] ?? icons.box}</svg>;

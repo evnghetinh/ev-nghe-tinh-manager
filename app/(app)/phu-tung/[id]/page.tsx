@@ -8,11 +8,11 @@ import { money, money2, digits, qtyText, decimalInput, toNum, tonText, COT_PHU_T
 import { useRole } from "@/lib/role";
 
 type Part = { id: string; name: string; code: string | null; sale_price: number; stock: number } & DonVi;
-type Row = { id: string; don_vi: string; loai: string; so_luong: number; ton_sau: number; order_id: string | null; order_code: number | null; import_id: string | null; created_by_name: string | null; ghi_chu: string | null; created_at: string };
+type Row = { id: string; don_vi: string; loai: string; so_luong: number; ton_sau: number; ton_truoc: number; order_id: string | null; order_code: number | null; import_id: string | null; created_by_name: string | null; ghi_chu: string | null; created_at: string };
 
 const LOAI: Record<string, string> = {
   ton_dau: "Tồn đầu kỳ", nhap_hang: "Nhập hàng", xuat_phieu: "Xuất cho phiếu", them_khi_sua: "Thêm khi sửa phiếu",
-  xoa_khi_sua: "Xóa khi sửa phiếu", khach_tra: "Khách trả hàng", kiem_ke: "Kiểm kê điều chỉnh", huy_nhap_hang: "Hủy nhập hàng", doi_don_vi: "Đổi đơn vị",
+  xoa_khi_sua: "Xóa khi sửa phiếu", khach_tra: "Khách trả hàng", kiem_ke: "Kiểm kê điều chỉnh", huy_nhap_hang: "Hủy nhập hàng", doi_don_vi: "Đổi đơn vị", huy_phieu: "Hủy phiếu (hoàn kho)",
 };
 
 export default function PartDetail() {
@@ -36,10 +36,10 @@ export default function PartDetail() {
     if (!p.data) return setError("Không tìm thấy phụ tùng.");
     { const d = p.data as Part; setPart({ ...d, stock: Number(d.stock), he_so: Number(d.he_so) }); }
     const l = await supabase.from("stock_ledger")
-      .select("id, don_vi, loai, so_luong, ton_sau, order_id, order_code, import_id, created_by_name, ghi_chu, created_at")
+      .select("id, don_vi, loai, so_luong, ton_sau, ton_truoc, order_id, order_code, import_id, created_by_name, ghi_chu, created_at")
       .eq("part_id", id).order("seq", { ascending: false }).limit(500);
     if (l.error) return setError("Không tải được sổ kho (đã chạy giai-doan-13.sql chưa?): " + l.error.message);
-    setRows((l.data as Row[]).map((x) => ({ ...x, so_luong: Number(x.so_luong), ton_sau: Number(x.ton_sau) })));
+    setRows((l.data as Row[]).map((x) => ({ ...x, so_luong: Number(x.so_luong), ton_sau: Number(x.ton_sau), ton_truoc: Number(x.ton_truoc) })));
     if (isOwner) {
       const c = await supabase.from("part_costs").select("cost_price").eq("part_id", id).maybeSingle();
       setCost(c.data ? Number(c.data.cost_price) : 0);
@@ -169,7 +169,7 @@ export default function PartDetail() {
                     <b>{LOAI[r.loai] ?? r.loai}{r.order_code ? ` · phiếu #${r.order_code}` : ""}{r.import_id ? " · lần nhập" : ""}</b>
                     <b className={r.so_luong > 0 ? "text-green-700" : "text-red-600"}>{r.so_luong > 0 ? "+" : ""}{qtyText(r.so_luong)} {r.don_vi}</b>
                   </div>
-                  <div className="text-slate-600">Tồn sau: {qtyText(r.ton_sau)} {r.don_vi}</div>
+                  <div className="text-slate-600">Số lượng trước: {qtyText(r.ton_truoc)} → sau: {qtyText(r.ton_sau)} {r.don_vi}</div>
                   <div className="text-xs text-slate-500">{new Date(r.created_at).toLocaleString("vi-VN")} · {r.created_by_name ?? "Không rõ"}</div>
                   {r.ghi_chu && <div className="text-slate-700">{r.ghi_chu}</div>}
                   {clickable(r) && <div className="text-xs text-blue-600">Bấm để mở {r.order_id ? "phiếu" : "lần nhập"} →</div>}

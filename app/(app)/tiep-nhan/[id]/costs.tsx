@@ -3,8 +3,8 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { money, digits } from "@/lib/format";
 
-type Cost = { id: string; kind: Kind; content: string; amount: number; note: string | null };
-type Log = { id: string; action: "them" | "sua" | "xoa"; kind: Kind; content: string; amount_before: number | null; amount_after: number | null; note: string | null; detail: string | null; created_by_name: string | null; created_at: string };
+type Cost = { id: string; kind: Kind; content: string; amount: number; note: string | null; da_huy: boolean; huy_ly_do: string | null; huy_boi_ten: string | null; huy_luc: string | null; created_by_name: string | null; created_at: string };
+type Log = { id: string; action: "them" | "sua" | "xoa" | "huy"; kind: Kind; content: string; amount_before: number | null; amount_after: number | null; note: string | null; detail: string | null; created_by_name: string | null; created_at: string };
 type Kind = "vat_tu" | "thue_ngoai" | "khac";
 const KINDS: { v: Kind; label: string }[] = [{ v: "vat_tu", label: "Vật tư tiêu hao" }, { v: "thue_ngoai", label: "Thuê ngoài" }, { v: "khac", label: "Khác" }];
 const label = (k: string) => KINDS.find((x) => x.v === k)?.label ?? k;
@@ -19,10 +19,10 @@ export default function Costs({ orderId, revenue, partsCost }: { orderId: string
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
-    const c = await supabase.from("repair_costs").select("id, kind, content, amount, note").eq("order_id", orderId).order("created_at");
+    const c = await supabase.from("repair_costs").select("id, kind, content, amount, note, da_huy, huy_ly_do, huy_boi_ten, huy_luc, created_by_name, created_at").eq("order_id", orderId).order("created_at");
     const l = await supabase.from("repair_cost_logs").select("id, action, kind, content, amount_before, amount_after, note, detail, created_by_name, created_at").eq("order_id", orderId).order("created_at", { ascending: false });
     if (c.error) setError(c.error.message + " (đã chạy giai-doan-10.sql chưa?)");
-    if (c.data) setCosts(c.data as Cost[]);
+    if (c.data) setCosts((c.data as Cost[]).map((x) => ({ ...x, amount: Number(x.amount) })));
     if (l.data) setLogs(l.data as Log[]);
   }, [orderId]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -41,9 +41,11 @@ export default function Costs({ orderId, revenue, partsCost }: { orderId: string
     setForm(empty); setEditId(null); load();
   }
   async function remove(c: Cost) {
-    if (!confirm(`Xóa chi phí "${c.content}" (${money(c.amount)})?`)) return;
+    const ly = window.prompt(`Hủy chi phí "${c.content}" (${money(c.amount)}). Dòng được giữ lại và đánh dấu đã hủy, không tính vào lợi nhuận.\n\nLý do hủy (bắt buộc):`);
+    if (ly === null) return;
+    if (!ly.trim()) return setError("Bắt buộc nhập lý do hủy chi phí.");
     setError(""); setBusy(true);
-    const r = await supabase.rpc("chi_phi_xoa", { p_id: c.id });
+    const r = await supabase.rpc("chi_phi_huy", { p_id: c.id, p_ly_do: ly.trim() });
     setBusy(false);
     if (r.error) return setError(r.error.message);
     if (editId === c.id) { setForm(empty); setEditId(null); }
@@ -54,7 +56,7 @@ export default function Costs({ orderId, revenue, partsCost }: { orderId: string
     setForm({ kind: c.kind, content: c.content, amount: String(c.amount), note: c.note ?? "" });
   }
 
-  const other = costs.reduce((s, c) => s + c.amount, 0);
+  const other = costs.filter((c) => !c.da_huy).reduce((s, c) => s + c.amount, 0);
   const profit = revenue - partsCost - other;
   const input = "w-full border rounded-lg px-3 py-2";
 
@@ -81,15 +83,17 @@ export default function Costs({ orderId, revenue, partsCost }: { orderId: string
 
       <ul className="space-y-2">
         {costs.map((c) => (
-          <li key={c.id} className="border rounded-lg p-3 flex justify-between gap-2 items-start">
+          <li key={c.id} className={`border rounded-lg p-3 flex justify-between gap-2 items-start ${c.da_huy ? "bg-slate-50 text-slate-400" : ""}`}>
             <div className="text-sm min-w-0">
-              <div className="font-medium break-words">{c.content} <span className="text-xs text-slate-500">({label(c.kind)})</span></div>
+              <div className={`font-medium break-words ${c.da_huy ? "line-through" : ""}`}>{c.content} <span className="text-xs text-slate-500">({label(c.kind)})</span></div>
               {c.note && <div className="text-slate-500 break-words">{c.note}</div>}
+              <div className="text-xs text-slate-500">Ghi bởi {c.created_by_name ?? "Không rõ"} · {new Date(c.created_at).toLocaleString("vi-VN")}</div>
+              {c.da_huy && <div className="text-xs text-red-600">Đã hủy bởi {c.huy_boi_ten ?? "Không rõ"} lúc {c.huy_luc ? new Date(c.huy_luc).toLocaleString("vi-VN") : ""} · Lý do: {c.huy_ly_do}</div>}
             </div>
             <div className="text-right shrink-0 text-sm">
-              <div className="font-medium">{money(c.amount)}</div>
-              <button disabled={busy} onClick={() => startEdit(c)} className="text-blue-600 mr-3">Sửa</button>
-              <button disabled={busy} onClick={() => remove(c)} className="text-red-600">Xóa</button>
+              <div className={`font-medium ${c.da_huy ? "line-through" : ""}`}>{money(c.amount)}</div>
+              {!c.da_huy && <button disabled={busy} onClick={() => startEdit(c)} className="text-blue-600 mr-3">Sửa</button>}
+              {!c.da_huy && <button disabled={busy} onClick={() => remove(c)} className="text-red-600">Hủy</button>}
             </div>
           </li>
         ))}
@@ -113,12 +117,12 @@ export default function Costs({ orderId, revenue, partsCost }: { orderId: string
               <li key={l.id} className="border rounded-lg p-3 text-sm space-y-1">
                 <div className="text-slate-500">{new Date(l.created_at).toLocaleString("vi-VN")} · {l.created_by_name ?? "Không rõ"}</div>
                 <div>
-                  <b className={l.action === "them" ? "text-green-700" : l.action === "xoa" ? "text-red-600" : "text-blue-700"}>{l.action === "them" ? "Thêm" : l.action === "xoa" ? "Xóa" : "Sửa"}</b>{" "}
+                  <b className={l.action === "them" ? "text-green-700" : l.action === "xoa" || l.action === "huy" ? "text-red-600" : "text-blue-700"}>{l.action === "them" ? "Thêm" : l.action === "xoa" ? "Xóa" : l.action === "huy" ? "Hủy" : "Sửa"}</b>{" "}
                   <b>{l.content}</b> ({label(l.kind)})
                 </div>
                 <div>
                   {l.action === "them" && <>Số tiền: {money(l.amount_after ?? 0)}</>}
-                  {l.action === "xoa" && <>Số tiền: {money(l.amount_before ?? 0)}</>}
+                  {(l.action === "xoa" || l.action === "huy") && <>Số tiền: {money(l.amount_before ?? 0)}</>}
                   {l.action === "sua" && <>Số tiền: {money(l.amount_before ?? 0)} → {money(l.amount_after ?? 0)}</>}
                 </div>
                 {l.detail && <div className="text-slate-600 break-words">{l.detail}</div>}

@@ -105,7 +105,7 @@ export default function PartsPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   async function remove(p: Part) {
-    if (!confirm(`Xóa phụ tùng "${p.name}"?`)) return;
+    if (!confirm(`Xóa phụ tùng "${p.name}"? Chỉ xóa được phụ tùng chưa có lịch sử kho / phiếu / nhập hàng; việc xóa được ghi nhật ký.`)) return;
     const { error } = await supabase.from("parts").delete().eq("id", p.id);
     if (error) setError(error.message); else load();
   }
@@ -159,8 +159,8 @@ export default function PartsPage() {
             <div className="text-sm text-slate-500">{isOwner ? `Vốn ${money2(p.cost_price ?? 0)}/${p.don_vi_ban} · ` : ""}Bán {money(p.sale_price)}/{p.don_vi_ban}</div>
             <div className="flex gap-1 text-sm flex-wrap">
               <Link href={`/phu-tung/${p.id}`} className="btn-secondary text-sm !px-3">Lịch sử</Link>
-              <button onClick={() => edit(p)} className="btn-secondary text-sm !px-3">Sửa</button>
-              <button onClick={() => remove(p)} className="bare text-red-600 px-3 min-h-11">Xóa</button>
+              {isOwner && <button onClick={() => edit(p)} className="btn-secondary text-sm !px-3">Sửa</button>}
+              {isOwner && <button onClick={() => remove(p)} className="bare text-red-600 px-3 min-h-11">Xóa</button>}
               {isOwner && p.is_hidden && <button onClick={() => unhide(p)} className="bare text-amber-700 px-3 min-h-11">Bỏ ẩn</button>}
             </div>
           </li>

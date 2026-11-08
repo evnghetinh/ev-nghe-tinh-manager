@@ -4,7 +4,7 @@ import { EmptyState, Icon, PageTitle, Toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { useRole, roleLabel, type Role } from "@/lib/role";
 
-type Tk = { tk_id: string; tk_email: string; tk_vai_tro: Role | null; tk_ten: string | null };
+type Tk = { tk_id: string; tk_email: string; tk_vai_tro: Role | null; tk_ten: string | null; tk_ten_tam: boolean };
 type Ktv = { id: string; ten: string; dang_lam: boolean };
 type Mau = { id: string; thu_tu: number; ten: string };
 
@@ -48,13 +48,18 @@ export default function SettingsPage() {
 
       <section className="card space-y-3">
         <h2 className="font-bold text-navy-900">Tên hiển thị của tài khoản</h2>
-        <p className="text-sm text-slate-500">Tên này hiện ở &quot;Nhân viên tiếp nhận&quot; và &quot;Người kiểm tra&quot;. Để trống thì dùng email.</p>
+        <p className="text-sm text-slate-500">Bắt buộc có tên cho mọi tài khoản (ví dụ KTV02). Tên này hiện ở &quot;Nhân viên tiếp nhận&quot;, &quot;Người kiểm tra&quot; và trong Nhật ký hoạt động. Tài khoản chưa được đặt tên đang dùng tạm phần trước dấu @ của email.</p>
         <ul className="space-y-2">
           {tks.map((t) => (
             <li key={t.tk_id} className="border border-slate-200 rounded-xl p-3 space-y-2">
               <div className="text-sm text-slate-600">{t.tk_email} · {t.tk_vai_tro ? roleLabel[t.tk_vai_tro] : "chưa có vai trò"}</div>
-              <input placeholder="Tên hiển thị" className={input} defaultValue={t.tk_ten ?? ""} key={t.tk_id + (t.tk_ten ?? "")}
-                onBlur={(e) => e.target.value.trim() !== (t.tk_ten ?? "") && run(supabase.rpc("dat_ten_hien_thi", { p_user: t.tk_id, p_ten: e.target.value }))} />
+              {t.tk_ten_tam && <div className="text-xs text-amber-700">Chưa đặt tên chính thức (đang dùng tạm). Hãy nhập tên rồi bấm ra ngoài ô để lưu.</div>}
+              <input required placeholder="Tên hiển thị (bắt buộc)" className={input} defaultValue={t.tk_ten ?? ""} key={t.tk_id + (t.tk_ten ?? "")}
+                onBlur={(e) => {
+                  const v = e.target.value.trim();
+                  if (!v) { setError("Bắt buộc nhập tên hiển thị cho mọi tài khoản (ví dụ KTV02)."); e.target.value = t.tk_ten ?? ""; return; }
+                  if (v !== (t.tk_ten ?? "") || t.tk_ten_tam) run(supabase.rpc("dat_ten_hien_thi", { p_user: t.tk_id, p_ten: v }));
+                }} />
             </li>
           ))}
         </ul>

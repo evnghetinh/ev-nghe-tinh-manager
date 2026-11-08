@@ -24,17 +24,50 @@ const inp = "border px-3 py-2 w-full bg-white";
 const btn = "px-4 font-medium";
 const costOf = (c: Paid["repair_items"][number]["repair_item_costs"]) => (Array.isArray(c) ? c[0]?.cost_price : c?.cost_price) ?? 0;
 
+type Huy = { id: string; da_huy: boolean; huy_ly_do: string | null; huy_boi_ten: string | null; huy_luc: string | null; created_by_name: string | null; created_at: string };
+
 function useRows<T>(table: string, order: string) {
   const [rows, setRows] = useState<T[]>([]);
+  const [huy, setHuy] = useState<(T & Huy)[]>([]);
   const [error, setError] = useState("");
   const reload = useCallback(async () => {
     const r = await supabase.from(table).select("*").order(order, { ascending: false }).order("created_at", { ascending: false });
     if (r.error) setError(`Không đọc được dữ liệu (đã chạy giai-doan-11.sql chưa?): ${r.error.message}`);
-    else { setError(""); setRows(r.data as T[]); }
+    else {
+      setError("");
+      const all = r.data as (T & Huy)[];
+      setRows(all.filter((x) => !x.da_huy));
+      setHuy(all.filter((x) => x.da_huy));
+    }
   }, [table, order]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { reload(); }, [reload]);
-  return { rows, error, reload };
+  return { rows, huy, error, reload };
+}
+
+// Không xóa cứng: "Hủy" bắt buộc có lý do, dòng được giữ lại và đánh dấu đã hủy
+async function huyVon(bang: string, id: string, setErr: (s: string) => void): Promise<boolean> {
+  const ly = window.prompt("Lý do hủy (bắt buộc):");
+  if (ly === null) return false;
+  if (!ly.trim()) { setErr("Bắt buộc nhập lý do hủy."); return false; }
+  return run(supabase.rpc("von_huy", { p_bang: bang, p_id: id, p_ly_do: ly.trim() }), setErr);
+}
+
+function DaHuy({ rows, label }: { rows: Huy[]; label: (r: Huy) => string }) {
+  if (rows.length === 0) return null;
+  return (
+    <details className="text-sm">
+      <summary className="cursor-pointer text-slate-500 min-h-11 flex items-center">Đã hủy ({rows.length}) · không tính vào số liệu</summary>
+      <ul className="divide-y">
+        {rows.map((r) => (
+          <li key={r.id} className="py-2 text-slate-500">
+            <div className="line-through">{label(r)}</div>
+            <div className="text-xs">Hủy bởi {r.huy_boi_ten ?? "Không rõ"} lúc {r.huy_luc ? new Date(r.huy_luc).toLocaleString("vi-VN") : ""} · Lý do: {r.huy_ly_do}</div>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
 }
 
 function MoneyInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
@@ -56,7 +89,7 @@ async function run(p: PromiseLike<{ error: { message: string } | null }>, setErr
 }
 
 /* ---------- 1. Chi phí mở xưởng ---------- */
-function SetupSection({ rows, reload, error }: { rows: Setup[]; reload: () => void; error: string }) {
+function SetupSection({ rows, huy, reload, error }: { rows: Setup[]; huy: (Setup & Huy)[]; reload: () => void; error: string }) {
   const empty = { id: "", spent_on: today(), category: CATS[0], custom: "", amount: "", paid_by: "", note: "" };
   const [f, setF] = useState(empty);
   const [err, setErr] = useState("");
@@ -70,8 +103,7 @@ function SetupSection({ rows, reload, error }: { rows: Setup[]; reload: () => vo
     if (await run(q, setErr)) { setF(empty); reload(); }
   }
   async function del(r: Setup) {
-    if (!confirm(`Xóa khoản "${r.category}" ${money(r.amount)}?`)) return;
-    if (await run(supabase.from("von_chi_phi_mo_xuong").delete().eq("id", r.id), setErr)) reload();
+    if (await huyVon("von_chi_phi_mo_xuong", r.id, setErr)) reload();
   }
   function edit(r: Setup) {
     const known = CATS.includes(r.category);
@@ -107,18 +139,19 @@ function SetupSection({ rows, reload, error }: { rows: Setup[]; reload: () => vo
                 </div>
                 <div className="text-right"><div className="font-medium">{money(r.amount)}</div>
                   <button onClick={() => edit(r)} className="bare text-sm text-green-700 px-2 min-h-11">Sửa</button>
-                  <button onClick={() => del(r)} className="bare text-sm text-red-600 px-2 min-h-11">Xóa</button></div>
+                  <button onClick={() => del(r)} className="bare text-sm text-red-600 px-2 min-h-11">Hủy</button></div>
               </li>
             ))}
           </ul>
         )}
+        <DaHuy rows={huy} label={(r) => { const x = r as unknown as Setup; return `${x.category} · ${fmtDate(x.spent_on)} · ${money(x.amount)}`; }} />
       </Card>
     </div>
   );
 }
 
 /* ---------- 2. Vốn góp ---------- */
-function ContribSection({ rows, reload, error, setupTotal }: { rows: Contrib[]; reload: () => void; error: string; setupTotal: number }) {
+function ContribSection({ rows, huy, reload, error, setupTotal }: { rows: Contrib[]; huy: (Contrib & Huy)[]; reload: () => void; error: string; setupTotal: number }) {
   const empty = { id: "", contributor: "", amount: "", contributed_on: today(), note: "" };
   const [f, setF] = useState(empty);
   const [err, setErr] = useState("");
@@ -133,8 +166,7 @@ function ContribSection({ rows, reload, error, setupTotal }: { rows: Contrib[]; 
     if (await run(q, setErr)) { setF(empty); reload(); }
   }
   async function del(r: Contrib) {
-    if (!confirm(`Xóa khoản góp của ${r.contributor} (${money(r.amount)})?`)) return;
-    if (await run(supabase.from("von_gop").delete().eq("id", r.id), setErr)) reload();
+    if (await huyVon("von_gop", r.id, setErr)) reload();
   }
   return (
     <div className="space-y-4">
@@ -167,18 +199,19 @@ function ContribSection({ rows, reload, error, setupTotal }: { rows: Contrib[]; 
                 </div>
                 <div className="text-right"><div className="font-medium">{money(r.amount)}</div>
                   <button onClick={() => setF({ id: r.id, contributor: r.contributor, amount: String(r.amount), contributed_on: r.contributed_on, note: r.note ?? "" })} className="bare text-sm text-green-700 px-2 min-h-11">Sửa</button>
-                  <button onClick={() => del(r)} className="bare text-sm text-red-600 px-2 min-h-11">Xóa</button></div>
+                  <button onClick={() => del(r)} className="bare text-sm text-red-600 px-2 min-h-11">Hủy</button></div>
               </li>
             ))}
           </ul>
         )}
+        <DaHuy rows={huy} label={(r) => { const x = r as unknown as Contrib; return `${x.contributor} · ${fmtDate(x.contributed_on)} · ${money(x.amount)}`; }} />
       </Card>
     </div>
   );
 }
 
 /* ---------- 3. Chi phí vận hành ---------- */
-function OpSection({ rows, reload, error }: { rows: Op[]; reload: () => void; error: string }) {
+function OpSection({ rows, huy, reload, error }: { rows: Op[]; huy: (Op & Huy)[]; reload: () => void; error: string }) {
   const [month, setMonth] = useState(monthOf(today()));
   const empty = { id: "", kind: "thue_mat_bang", amount: "", note: "" };
   const [f, setF] = useState(empty);
@@ -194,8 +227,7 @@ function OpSection({ rows, reload, error }: { rows: Op[]; reload: () => void; er
     if (await run(q, setErr)) { setF(empty); reload(); }
   }
   async function del(r: Op) {
-    if (!confirm(`Xóa khoản "${KINDS[r.kind]}" ${money(r.amount)}?`)) return;
-    if (await run(supabase.from("von_chi_phi_van_hanh").delete().eq("id", r.id), setErr)) reload();
+    if (await huyVon("von_chi_phi_van_hanh", r.id, setErr)) reload();
   }
   async function copyPrev() {
     if (prev.length === 0) return setErr(`Tháng ${fmtMonth(addMonth(month, -1))} chưa có khoản nào để sao chép.`);
@@ -232,18 +264,19 @@ function OpSection({ rows, reload, error }: { rows: Op[]; reload: () => void; er
                 <div className="flex-1 min-w-0"><div className="font-medium">{KINDS[r.kind]}</div>{r.note && <div className="text-sm text-slate-500">{r.note}</div>}</div>
                 <div className="text-right"><div className="font-medium">{money(r.amount)}</div>
                   <button onClick={() => setF({ id: r.id, kind: r.kind, amount: String(r.amount), note: r.note ?? "" })} className="bare text-sm text-green-700 px-2 min-h-11">Sửa</button>
-                  <button onClick={() => del(r)} className="bare text-sm text-red-600 px-2 min-h-11">Xóa</button></div>
+                  <button onClick={() => del(r)} className="bare text-sm text-red-600 px-2 min-h-11">Hủy</button></div>
               </li>
             ))}
           </ul>
         )}
+        <DaHuy rows={huy.filter((r) => monthOf(r.month) === month)} label={(r) => { const x = r as unknown as Op; return `${KINDS[x.kind]} · ${money(x.amount)}`; }} />
       </Card>
     </div>
   );
 }
 
 /* ---------- 4. Báo cáo thu hồi vốn ---------- */
-function ReportSection({ setup, contribs, ops, priors, reloadPriors, priorError }: { setup: Setup[]; contribs: Contrib[]; ops: Op[]; priors: Prior[]; reloadPriors: () => void; priorError: string }) {
+function ReportSection({ setup, contribs, ops, priors, priorsHuy, reloadPriors, priorError }: { setup: Setup[]; contribs: Contrib[]; ops: Op[]; priors: Prior[]; priorsHuy: (Prior & Huy)[]; reloadPriors: () => void; priorError: string }) {
   const [start, setStart] = useState<string | null>(null);
   const [orders, setOrders] = useState<Paid[]>([]);
   const [error, setError] = useState("");
@@ -267,7 +300,7 @@ function ReportSection({ setup, contribs, ops, priors, reloadPriors, priorError 
       const all: Paid[] = [];
       for (let from = 0; ; from += 1000) {
         const r = await supabase.from("repair_orders").select("paid_at, repair_items(kind, qty, unit_price, repair_item_costs(cost_price)), repair_costs(amount)")
-          .eq("stock_deducted", true).gte("paid_at", start).lte("paid_at", today()).order("paid_at").range(from, from + 999);
+          .eq("stock_deducted", true).eq("da_huy", false).eq("repair_costs.da_huy", false).gte("paid_at", start).lte("paid_at", today()).order("paid_at").range(from, from + 999);
         if (r.error) { setError(r.error.message); break; }
         all.push(...((r.data ?? []) as unknown as Paid[]));
         if ((r.data?.length ?? 0) < 1000) break;
@@ -320,8 +353,7 @@ function ReportSection({ setup, contribs, ops, priors, reloadPriors, priorError 
     if (await run(q, setErr)) { setF(empty); reloadPriors(); }
   }
   async function delPrior(p: Prior) {
-    if (!confirm(`Xóa lợi nhuận tháng ${fmtMonth(monthOf(p.month))}?`)) return;
-    if (await run(supabase.from("von_loi_nhuan_cu").delete().eq("id", p.id), setErr)) reloadPriors();
+    if (await huyVon("von_loi_nhuan_cu", p.id, setErr)) reloadPriors();
   }
 
   function exportXlsx() {
@@ -420,11 +452,12 @@ function ReportSection({ setup, contribs, ops, priors, reloadPriors, priorError 
                 <div className="flex-1 min-w-0"><div className="font-medium">Tháng {fmtMonth(monthOf(p.month))}</div>{p.note && <div className="text-sm text-slate-500">{p.note}</div>}</div>
                 <div className="text-right"><div className={`font-medium ${p.amount < 0 ? "text-red-700" : ""}`}>{money(p.amount)}</div>
                   <button onClick={() => setF({ id: p.id, month: monthOf(p.month), amount: String(Math.abs(p.amount)), neg: p.amount < 0, note: p.note ?? "" })} className="bare text-sm text-green-700 px-2 min-h-11">Sửa</button>
-                  <button onClick={() => delPrior(p)} className="bare text-sm text-red-600 px-2 min-h-11">Xóa</button></div>
+                  <button onClick={() => delPrior(p)} className="bare text-sm text-red-600 px-2 min-h-11">Hủy</button></div>
               </li>
             ))}
           </ul>
         )}
+        <DaHuy rows={priorsHuy} label={(r) => { const x = r as unknown as Prior; return `Tháng ${fmtMonth(monthOf(x.month))} · ${money(x.amount)}`; }} />
       </Card>
     </div>
   );
@@ -454,10 +487,10 @@ export default function VonPage() {
           <button key={t} onClick={() => setTab(i)} className={`bare rounded-xl min-h-11 text-sm ${tab === i ? "bg-white font-semibold text-green-800 shadow" : "text-slate-600"}`}>{t}</button>
         ))}
       </div>
-      {tab === 0 && <SetupSection rows={setup.rows} reload={setup.reload} error={setup.error} />}
-      {tab === 1 && <ContribSection rows={contrib.rows} reload={contrib.reload} error={contrib.error} setupTotal={setupTotal} />}
-      {tab === 2 && <OpSection rows={ops.rows} reload={ops.reload} error={ops.error} />}
-      {tab === 3 && <ReportSection setup={setup.rows} contribs={contrib.rows} ops={ops.rows} priors={priors.rows} reloadPriors={priors.reload} priorError={priors.error} />}
+      {tab === 0 && <SetupSection rows={setup.rows} huy={setup.huy} reload={setup.reload} error={setup.error} />}
+      {tab === 1 && <ContribSection rows={contrib.rows} huy={contrib.huy} reload={contrib.reload} error={contrib.error} setupTotal={setupTotal} />}
+      {tab === 2 && <OpSection rows={ops.rows} huy={ops.huy} reload={ops.reload} error={ops.error} />}
+      {tab === 3 && <ReportSection setup={setup.rows} contribs={contrib.rows} ops={ops.rows} priors={priors.rows} priorsHuy={priors.huy} reloadPriors={priors.reload} priorError={priors.error} />}
     </div>
   );
 }

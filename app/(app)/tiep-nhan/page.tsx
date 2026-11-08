@@ -4,15 +4,18 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { EmptyState, Icon, LoadingBlock, PageTitle, StatusBadge, Toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
+import { useRole } from "@/lib/role";
 
-type Order = { id: string; code: number; customer_id: string; received_at: string; odometer: number | null; issue: string; status: string; note: string | null; vehicles: { plate: string; model: string | null } | null; customers: { name: string; phone: string | null } | null };
+type Order = { id: string; code: number; customer_id: string; received_at: string; odometer: number | null; issue: string; status: string; note: string | null; stock_deducted: boolean; da_huy: boolean; vehicles: { plate: string; model: string | null } | null; customers: { name: string; phone: string | null } | null };
 type Veh = { id: string; customer_id: string; plate: string; vehicle_type: string | null; customers: { name: string; phone: string | null } | null };
 type Cust = { id: string; name: string; phone: string | null };
 const TYPES = ["Xe máy điện", "Xe đạp điện", "Ô tô điện", "Xe ba bánh điện", "Khác"];
 const emptyNew = { plate: "", type: TYPES[0], vin: "", name: "", phone: "", address: "" };
 // bỏ dấu tiếng Việt, hoa/thường và mọi ký tự không phải chữ/số (dấu cách, chấm, gạch...)
 const squash = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/gi, "d").toLowerCase().replace(/[^a-z0-9]/g, "");
-const STATUS = ["Chờ xử lý", "Đang sửa", "Hoàn thành", "Đã giao xe"];
+const STATUS = ["Chờ xử lý", "Đang sửa", "Hoàn thành", "Đã giao xe", "Đã hủy"];
+// "Hoàn thành" chỉ đặt qua nút "Hoàn thành và thu tiền", "Đã hủy" chỉ đặt qua "Hủy phiếu"
+const STATUS_CHON = ["Chờ xử lý", "Đang sửa", "Đã giao xe"];
 const empty = { vehicle_id: "", odometer: "", issue: "", note: "", soc: "", soh: "", pin: "" };
 type Ktv = { id: string; ten: string };
 
@@ -32,6 +35,7 @@ export default function OrdersPage() {
   const [dtcs, setDtcs] = useState<{ ma: string; ghi_chu: string }[]>([]);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const isOwner = useRole() === "chu";
   const tim = useSearchParams().get("tim") ?? "";
 
   const load = useCallback(async () => {
@@ -108,9 +112,18 @@ export default function OrdersPage() {
     const { error } = await supabase.from("repair_orders").update({ status }).eq("id", id);
     if (error) setError(error.message); else load();
   }
+  // Chỉ xóa được phiếu NHÁP (chưa có dòng, chưa thu, chưa trừ kho); việc xóa được ghi nhật ký
   async function remove(o: Order) {
-    if (!confirm(`Xóa phiếu PT${String(o.code).padStart(4, "0")}?`)) return;
-    const { error } = await supabase.from("repair_orders").delete().eq("id", o.id);
+    if (!confirm(`Xóa phiếu nháp PT${String(o.code).padStart(4, "0")}? Chỉ xóa được khi phiếu chưa có dòng nào, chưa thu tiền, chưa trừ kho. Việc xóa được ghi nhật ký.`)) return;
+    const { error } = await supabase.rpc("xoa_phieu_nhap", { p_order: o.id });
+    if (error) setError(error.message); else load();
+  }
+  // Phiếu đã có dòng / đã thu / đã trừ kho: chỉ Chủ hủy, lý do bắt buộc
+  async function cancelOrder(o: Order) {
+    const ly = window.prompt(`Hủy phiếu PT${String(o.code).padStart(4, "0")}. Kho được hoàn lại, khoản thu được đảo, phiếu bị loại khỏi doanh thu và lợi nhuận.\n\nLý do hủy (bắt buộc):`);
+    if (ly === null) return;
+    if (!ly.trim()) return setError("Bắt buộc nhập lý do hủy phiếu.");
+    const { error } = await supabase.rpc("huy_phieu", { p_order: o.id, p_ly_do: ly.trim() });
     if (error) setError(error.message); else load();
   }
 
@@ -205,21 +218,29 @@ export default function OrdersPage() {
           <li key={o.id} className="card space-y-2">
             <Link href={`/tiep-nhan/${o.id}`} className="block space-y-2">
               <div className="flex justify-between gap-2">
-                <div className="font-semibold text-navy-900">PT{String(o.code).padStart(4, "0")} · {o.vehicles?.plate}</div>
+                <div className={`font-semibold text-navy-900 ${o.da_huy ? "line-through text-slate-400" : ""}`}>PT{String(o.code).padStart(4, "0")} · {o.vehicles?.plate}</div>
                 <StatusBadge status={o.status} />
               </div>
-              <div className="text-sm">{o.issue}</div>
+              <div className={`text-sm ${o.da_huy ? "line-through text-slate-400" : ""}`}>{o.issue}</div>
               <div className="text-sm text-slate-500">
                 {o.customers?.name}{o.customers?.phone ? ` (${o.customers.phone})` : ""} · {new Date(o.received_at).toLocaleString("vi-VN")}
                 {o.odometer != null ? ` · ${o.odometer} km` : ""}{o.note ? ` · ${o.note}` : ""}
               </div>
             </Link>
-            <div className="flex gap-2 items-center">
-              <select className="border px-2 text-sm" value={o.status} onChange={(e) => setStatus(o.id, e.target.value)}>
-                {STATUS.map((s) => <option key={s}>{s}</option>)}
-              </select>
+            {o.da_huy && <p className="text-xs text-red-700">Phiếu đã hủy · không tính vào doanh thu, lợi nhuận.</p>}
+            <div className="flex gap-2 items-center flex-wrap">
+              {!o.da_huy && (o.stock_deducted
+                ? (isOwner && (
+                  <select className="border px-2 text-sm" value={o.status} onChange={(e) => setStatus(o.id, e.target.value)}>
+                    {["Hoàn thành", "Đã giao xe"].map((s) => <option key={s}>{s}</option>)}
+                  </select>))
+                : (
+                  <select className="border px-2 text-sm" value={o.status} onChange={(e) => setStatus(o.id, e.target.value)}>
+                    {(STATUS_CHON.includes(o.status) ? STATUS_CHON : [o.status, ...STATUS_CHON]).map((s) => <option key={s}>{s}</option>)}
+                  </select>))}
               <Link href={`/tiep-nhan/${o.id}`} className="btn btn-secondary text-sm !px-3">Báo giá</Link>
-              <button onClick={() => remove(o)} className="bare text-red-600 text-sm ml-auto px-3 min-h-11">Xóa</button>
+              {!o.da_huy && !o.stock_deducted && <button onClick={() => remove(o)} className="bare text-red-600 text-sm ml-auto px-3 min-h-11">Xóa phiếu nháp</button>}
+              {!o.da_huy && isOwner && <button onClick={() => cancelOrder(o)} className={`bare text-red-700 text-sm px-3 min-h-11 ${o.stock_deducted ? "ml-auto" : ""}`}>Hủy phiếu</button>}
             </div>
           </li>
         ))}

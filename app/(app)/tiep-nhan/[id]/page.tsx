@@ -16,7 +16,9 @@ const lineTotal = (i: { qty: number; unit_price: number }) => Math.round(i.qty *
 type Part = { id: string; name: string; code: string | null; sale_price: number; stock: number } & DonVi;
 type Past = { id: string; code: number; received_at: string; odometer: number | null; issue: string; status: string; items: { kind: "part" | "labor"; name: string; qty: number }[] };
 type Log = { id: string; action: "them" | "xoa" | "tra"; ghi_chu: string | null; kind: "part" | "labor"; item_name: string; qty: number; unit_price: number; total_before: number; total_after: number; created_by_name: string | null; created_at: string };
-type Order = { code: number; issue: string; status: string; payment_method: string | null; paid_at: string | null; stock_deducted: boolean; odometer: number | null; vehicles: { plate: string } | null; customers: { name: string; phone: string | null; address: string | null } | null };
+type Pay = { id: string; loai: "thu" | "dieu_chinh" | "dao"; so_tien: number; hinh_thuc: string; ngay_thu: string; ghi_chu: string | null; da_huy: boolean; huy_ly_do: string | null; huy_boi_ten: string | null; huy_luc: string | null; created_by_name: string | null; created_at: string };
+const LOAI_THU: Record<string, string> = { thu: "Khoản thu", dieu_chinh: "Điều chỉnh", dao: "Đảo (hủy phiếu)" };
+type Order = { code: number; issue: string; status: string; payment_method: string | null; paid_at: string | null; stock_deducted: boolean; da_huy: boolean; huy_ly_do: string | null; huy_boi_ten: string | null; huy_luc: string | null; odometer: number | null; vehicles: { plate: string } | null; customers: { name: string; phone: string | null; address: string | null } | null };
 
 export default function QuotePage() {
   const { id } = useParams<{ id: string }>();
@@ -37,9 +39,11 @@ export default function QuotePage() {
   const [notice, setNotice] = useState("");
   const [ret, setRet] = useState<{ id: string; qty: string; reason: string } | null>(null);
   const [partsCost, setPartsCost] = useState(0);
+  const [pays, setPays] = useState<Pay[]>([]);
+  const [newPay, setNewPay] = useState({ amount: "", method: "Tiền mặt", date: new Date().toLocaleDateString("sv-SE"), note: "" });
 
   const load = useCallback(async () => {
-    const o = await supabase.from("repair_orders").select("code, issue, status, payment_method, paid_at, stock_deducted, odometer, vehicles(plate), customers(name, phone, address)").eq("id", id).single();
+    const o = await supabase.from("repair_orders").select("code, issue, status, payment_method, paid_at, stock_deducted, da_huy, huy_ly_do, huy_boi_ten, huy_luc, odometer, vehicles(plate), customers(name, phone, address)").eq("id", id).single();
     const i = await supabase.rpc("dong_bao_gia", { p_order: id });
     const p = await supabase.from("parts").select(COT_PHU_TUNG).eq("is_hidden", false).order("name");
     if (o.error) setError(o.error.message); else setOrder(o.data as unknown as Order);
@@ -48,6 +52,8 @@ export default function QuotePage() {
     if (role === "chu") {
       const l = await supabase.from("repair_edit_logs").select("id, action, ghi_chu, kind, item_name, qty, unit_price, total_before, total_after, created_by_name, created_at").eq("order_id", id).order("created_at", { ascending: false });
       if (l.data) setLogs(l.data as Log[]);
+      const pm = await supabase.from("order_payments").select("id, loai, so_tien, hinh_thuc, ngay_thu, ghi_chu, da_huy, huy_ly_do, huy_boi_ten, huy_luc, created_by_name, created_at").eq("order_id", id).order("seq");
+      if (pm.data) setPays((pm.data as Pay[]).map((x) => ({ ...x, so_tien: Number(x.so_tien) })));
       const c = await supabase.from("repair_items").select("kind, qty, repair_item_costs(cost_price)").eq("order_id", id);
       if (c.data) {
         type Row = { kind: string; qty: number; repair_item_costs: { cost_price: number } | { cost_price: number }[] | null };
@@ -80,7 +86,7 @@ export default function QuotePage() {
       if (r.error) return setError(r.error.message);
       report(r.data);
     } else {
-      const { error } = await supabase.from("repair_items").insert({ order_id: id, part_id: p.id, kind: "part", name: p.name, qty: n, unit_price: p.sale_price });
+      const { error } = await supabase.rpc("phieu_them_phu_tung", { p_order: id, p_part: p.id, p_qty: n });
       if (error) return setError(error.message);
     }
     setPartId(""); setQty("1"); load();
@@ -96,7 +102,7 @@ export default function QuotePage() {
       if (r.error) return setError(r.error.message);
       report(r.data);
     } else {
-      const { error } = await supabase.from("repair_items").insert({ order_id: id, kind: "labor", name: labor.name.trim(), qty: 1, unit_price: Number(labor.price || 0) });
+      const { error } = await supabase.rpc("phieu_them_cong", { p_order: id, p_name: labor.name.trim(), p_price: Number(labor.price || 0) });
       if (error) return setError(error.message);
     }
     setLabor({ name: "", price: "" }); load();
@@ -113,7 +119,7 @@ export default function QuotePage() {
       return load();
     }
     if (!confirm(`Xóa dòng "${it.name}"?`)) return;
-    const { error } = await supabase.from("repair_items").delete().eq("id", it.id);
+    const { error } = await supabase.rpc("phieu_xoa_dong", { p_item: it.id });
     if (error) setError(error.message); else load();
   }
   async function giveBack(it: Item) {
@@ -129,6 +135,37 @@ export default function QuotePage() {
     setBusy(false);
     if (r.error) return setError(r.error.message);
     setRet(null); report(r.data); load();
+  }
+  async function cancelOrder() {
+    const ly = window.prompt("Hủy phiếu: kho được hoàn lại qua sổ kho, các khoản thu được đảo bằng dòng điều chỉnh, phiếu bị loại khỏi doanh thu và lợi nhuận. Không hoàn tác được.\n\nLý do hủy (bắt buộc):");
+    if (ly === null) return;
+    if (!ly.trim()) return setError("Bắt buộc nhập lý do hủy phiếu.");
+    setBusy(true);
+    const r = await supabase.rpc("huy_phieu", { p_order: id, p_ly_do: ly.trim() });
+    setBusy(false);
+    if (r.error) return setError(r.error.message);
+    setNotice("Đã hủy phiếu và ghi nhật ký."); load();
+  }
+  async function cancelPay(p: Pay) {
+    const ly = window.prompt(`Hủy khoản thu ${money(p.so_tien)} (${p.hinh_thuc}). Dòng được giữ lại và đánh dấu đã hủy; muốn sửa số tiền thì ghi khoản thu mới.\n\nLý do hủy (bắt buộc):`);
+    if (ly === null) return;
+    if (!ly.trim()) return setError("Bắt buộc nhập lý do hủy khoản thu.");
+    setBusy(true);
+    const r = await supabase.rpc("huy_khoan_thu", { p_payment: p.id, p_ly_do: ly.trim() });
+    setBusy(false);
+    if (r.error) return setError(r.error.message);
+    setNotice("Đã hủy khoản thu và ghi nhật ký."); load();
+  }
+  async function addPay(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    const amount = Number(newPay.amount || 0);
+    if (!(amount > 0)) return setError("Số tiền phải lớn hơn 0.");
+    setBusy(true);
+    const r = await supabase.rpc("ghi_khoan_thu", { p_order: id, p_so_tien: amount, p_hinh_thuc: newPay.method, p_ngay: newPay.date, p_ghi_chu: newPay.note });
+    setBusy(false);
+    if (r.error) return setError(r.error.message);
+    setNewPay({ ...newPay, amount: "", note: "" }); setNotice("Đã ghi khoản thu mới."); load();
   }
   function report(d: { truoc: number; sau: number }) {
     const diff = d.sau - d.truoc;
@@ -152,7 +189,10 @@ export default function QuotePage() {
   const partsTotal = sum("part");
   const laborTotal = sum("labor");
   const done = !!order?.stock_deducted;
-  const canEdit = !done || (role === "chu" && editing);
+  const cancelled = !!order?.da_huy;
+  const canEdit = !cancelled && (!done || (role === "chu" && editing));
+  const thuRong = pays.filter((p) => !p.da_huy).reduce((s, p) => s + p.so_tien, 0);
+  const conThieu = Math.round(partsTotal + laborTotal - thuRong);
   const input = "w-full border px-3 py-2";
 
   return (
@@ -163,11 +203,17 @@ export default function QuotePage() {
       </div>
       {order && (
         <div className="card border-l-4 border-brand-500">
-          <div className="flex justify-between gap-2 items-start"><h1 className="text-xl font-bold text-navy-900">Báo giá PT{String(order.code).padStart(4, "0")} · {order.vehicles?.plate}</h1><StatusBadge status={order.status} /></div>
+          <div className="flex justify-between gap-2 items-start"><h1 className={`text-xl font-bold text-navy-900 ${cancelled ? "line-through text-slate-400" : ""}`}>Báo giá PT{String(order.code).padStart(4, "0")} · {order.vehicles?.plate}</h1><StatusBadge status={order.status} /></div>
           <p className="text-sm text-slate-500">{order.customers?.name}{order.customers?.phone ? ` (${order.customers.phone})` : ""}</p>
           {order.customers?.address && <p className="text-sm text-slate-500">Địa chỉ: {order.customers.address}</p>}
           {order.odometer != null && <p className="text-sm text-slate-500">Số km: {new Intl.NumberFormat("vi-VN").format(order.odometer)} km</p>}
           <p className="text-sm mt-1">{order.issue}</p>
+          {cancelled && (
+            <div className="mt-2 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800">
+              <b>PHIẾU ĐÃ HỦY</b> — không tính vào doanh thu, lợi nhuận. {order.huy_boi_ten ? `Hủy bởi ${order.huy_boi_ten}` : ""}{order.huy_luc ? ` lúc ${new Date(order.huy_luc).toLocaleString("vi-VN")}` : ""}.
+              <div>Lý do: {order.huy_ly_do}</div>
+            </div>
+          )}
         </div>
       )}
       <Toast text={error} onClose={() => setError("")} />
@@ -225,7 +271,7 @@ export default function QuotePage() {
         <div className="flex justify-between text-xl font-bold border-t border-white/30 pt-2 mt-1"><span>Tổng báo giá</span><span>{money(partsTotal + laborTotal)}</span></div>
       </div>
 
-      {done ? (
+      {cancelled ? null : done ? (
         <div className="bg-slate-100 rounded-xl p-4 text-sm space-y-3">
           <div>Đã hoàn thành và thu tiền ({order?.payment_method}) ngày {order?.paid_at?.split("-").reverse().join("/")}. Kho đã được trừ.</div>
           {role === "chu" ? (
@@ -247,6 +293,51 @@ export default function QuotePage() {
           <input type="date" className={input} value={pay.date} onChange={(e) => setPay({ ...pay, date: e.target.value })} />
           <button onClick={complete} disabled={busy || items.length === 0} className="btn-primary disabled:opacity-50">Hoàn thành và thu tiền</button>
         </div>
+      )}
+
+      {role === "chu" && !cancelled && (items.length > 0 || done) && (
+        <div className="flex justify-end"><button disabled={busy} onClick={cancelOrder} className="btn bg-red-600 text-white px-4 disabled:opacity-50">Hủy phiếu</button></div>
+      )}
+
+      {role === "chu" && done && (
+        <section className="card space-y-3">
+          <h2 className="font-bold">Khoản thu</h2>
+          <p className="text-xs text-slate-500">Khoản thu không sửa, không xóa. Muốn sửa số tiền: hủy khoản thu (có lý do) rồi ghi khoản mới. Sửa phiếu sau khi thu sẽ tự thêm dòng điều chỉnh.</p>
+          <ul className="space-y-2">
+            {pays.map((p) => (
+              <li key={p.id} className={`border rounded-lg p-3 text-sm space-y-1 ${p.da_huy ? "bg-slate-50 text-slate-400" : ""}`}>
+                <div className="flex justify-between gap-2">
+                  <span><b className={p.da_huy ? "line-through" : p.so_tien < 0 ? "text-red-600" : ""}>{LOAI_THU[p.loai]}</b> · {p.hinh_thuc} · {p.ngay_thu.split("-").reverse().join("/")}</span>
+                  <b className={p.da_huy ? "line-through" : p.so_tien < 0 ? "text-red-600" : "text-green-700"}>{p.so_tien > 0 && p.loai !== "thu" ? "+" : ""}{money(p.so_tien)}</b>
+                </div>
+                {p.ghi_chu && <div>{p.ghi_chu}</div>}
+                <div className="text-xs">Ghi bởi {p.created_by_name ?? "Không rõ"} · {new Date(p.created_at).toLocaleString("vi-VN")}</div>
+                {p.da_huy && <div className="text-xs text-red-600">Đã hủy bởi {p.huy_boi_ten ?? "Không rõ"} lúc {p.huy_luc ? new Date(p.huy_luc).toLocaleString("vi-VN") : ""} · Lý do: {p.huy_ly_do}</div>}
+                {!p.da_huy && p.loai === "thu" && !cancelled && <button disabled={busy} onClick={() => cancelPay(p)} className="bare text-red-600 text-sm min-h-11">Hủy khoản thu</button>}
+              </li>
+            ))}
+            {pays.length === 0 && <li className="text-sm text-slate-500">Chưa có khoản thu nào.</li>}
+          </ul>
+          <div className="text-sm flex justify-between"><span>Tổng đã thu (không tính khoản đã hủy)</span><b>{money(thuRong)}</b></div>
+          {!cancelled && (
+            <>
+              <div className={`text-sm ${conThieu === 0 ? "text-green-700" : "text-amber-700"}`}>
+                {conThieu === 0 ? "Đã thu đủ theo tổng phiếu." : conThieu > 0 ? `Còn thiếu ${money(conThieu)} so với tổng phiếu.` : `Thu dư ${money(-conThieu)} so với tổng phiếu.`}
+              </div>
+              <form onSubmit={addPay} className="grid gap-2 sm:grid-cols-2 border-t pt-3">
+                <div className="sm:col-span-2 font-medium text-sm">Ghi khoản thu mới</div>
+                <input required inputMode="numeric" placeholder="Số tiền (đ)" className={input} value={newPay.amount} onChange={(e) => setNewPay({ ...newPay, amount: digits(e.target.value) })} />
+                <select className={input} value={newPay.method} onChange={(e) => setNewPay({ ...newPay, method: e.target.value })}><option>Tiền mặt</option><option>Chuyển khoản</option></select>
+                <input type="date" className={input} value={newPay.date} onChange={(e) => setNewPay({ ...newPay, date: e.target.value })} />
+                <input placeholder="Ghi chú" className={input} value={newPay.note} onChange={(e) => setNewPay({ ...newPay, note: e.target.value })} />
+                <div className="sm:col-span-2 flex gap-2 flex-wrap">
+                  {conThieu > 0 && <button type="button" onClick={() => setNewPay({ ...newPay, amount: String(conThieu) })} className="btn-secondary text-sm px-3">Điền số còn thiếu ({money(conThieu)})</button>}
+                  <button disabled={busy} className="btn-primary disabled:opacity-50">Ghi khoản thu</button>
+                </div>
+              </form>
+            </>
+          )}
+        </section>
       )}
 
       {done && role === "chu" && (

@@ -35,7 +35,7 @@ export default function Dashboard() {
       const first = today.slice(0, 8) + "01";
       const o = await supabase.from("repair_orders").select("*", { count: "exact", head: true }).in("status", ["Chờ xử lý", "Đang sửa"]);
       const p = await supabase.from("repair_orders").select("paid_at, repair_items(kind, qty, unit_price, repair_item_costs(cost_price)), repair_costs(kind, amount)")
-        .eq("stock_deducted", true).gte("paid_at", first).lte("paid_at", today);
+        .eq("stock_deducted", true).eq("da_huy", false).eq("repair_costs.da_huy", false).gte("paid_at", first).lte("paid_at", today);
       const pt = await supabase.from("parts").select("id, name, stock, min_stock, don_vi_nhap, don_vi_ban, he_so").eq("is_hidden", false).order("stock");
       if (p.error || pt.error) setError((p.error ?? pt.error)!.message);
       const day = emptyBd(), mon = emptyBd();
@@ -54,7 +54,7 @@ export default function Dashboard() {
         const d = new Date(now.getFullYear(), now.getMonth() - 5 + n, 1);
         return { k: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`, label: `T${d.getMonth() + 1}` };
       });
-      const h = await supabase.from("repair_orders").select(PAID_SEL).eq("stock_deducted", true).gte("paid_at", keys[0].k + "-01").lte("paid_at", today);
+      const h = await supabase.from("repair_orders").select(PAID_SEL).eq("stock_deducted", true).eq("da_huy", false).eq("repair_costs.da_huy", false).gte("paid_at", keys[0].k + "-01").lte("paid_at", today);
       const agg = new Map(keys.map((x) => [x.k, emptyBd()]));
       for (const r of (h.data ?? []) as unknown as Paid[]) {
         const b = agg.get(r.paid_at.slice(0, 7));
