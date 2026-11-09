@@ -48,6 +48,7 @@ export default function SoQuyPage() {
   const role = useRole();
   const [cai, setCai] = useState<CaiDat[]>([]);
   const [du, setDu] = useState<Partial<Record<Quy, number>>>({});
+  const [capNhat, setCapNhat] = useState("");
   const [rows, setRows] = useState<Dong[]>([]);
   const [more, setMore] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -80,6 +81,7 @@ export default function SoQuyPage() {
       if (!r.error) d[x.quy] = Number(r.data);
     }
     setDu(d);
+    setCapNhat(new Date().toLocaleString("vi-VN"));
   }, []);
 
   const build = useCallback(() => {
@@ -201,9 +203,10 @@ export default function SoQuyPage() {
             {cai.find((c) => c.quy === q) && <div className="text-xs text-slate-500">Đầu kỳ {money(Number(cai.find((c) => c.quy === q)!.so_du_dau))} từ {fmtDate(cai.find((c) => c.quy === q)!.ngay_bat_dau)}</div>}
           </div>
         ))}
-        <div className="card bg-navy-900 text-white">
-          <div className="text-sm text-slate-300">Tổng hai quỹ</div>
-          <div className="text-xl font-bold">{tong === null ? "—" : money(tong)}</div>
+        <div className="card border-2 border-navy-900">
+          <div className="text-sm text-slate-500">Tổng hai quỹ</div>
+          <div className="text-xl font-bold text-navy-900">{tong === null ? (cai.length ? "…" : "Chưa thiết lập") : money(tong)}</div>
+          {capNhat && <div className="text-xs text-slate-500">Cập nhật {capNhat}</div>}
         </div>
       </div>
 
