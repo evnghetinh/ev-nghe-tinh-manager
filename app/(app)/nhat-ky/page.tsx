@@ -15,7 +15,7 @@ type Tk = { tk_id: string; tk_email: string; tk_ten: string | null };
 // Mọi loại thao tác (chỉ để hiển thị / lọc; nhật ký tự ghi ở cơ sở dữ liệu)
 const HANH_DONG: Record<string, string> = {
   them: "Thêm", sua: "Sửa", xoa: "Xóa",
-  hoan_thanh: "Hoàn thành + thu tiền", huy_phieu: "Hủy phiếu", xoa_phieu_nhap: "Xóa phiếu nháp",
+  hoan_thanh: "Hoàn thành + thu tiền", huy_phieu: "Hủy phiếu", dao_phieu_da_huy: "Đảo bù phiếu đã hủy", xoa_phieu_nhap: "Xóa phiếu nháp",
   dao_khoan_thu: "Đảo khoản thu", huy_khoan_thu: "Hủy khoản thu", huy_chi_phi: "Hủy chi phí", huy_von: "Hủy khoản vốn",
   nhap_hang: "Nhập kho", xuat_phieu: "Xuất kho cho phiếu", them_khi_sua: "Xuất thêm khi sửa phiếu", xoa_khi_sua: "Hoàn kho khi sửa phiếu",
   khach_tra: "Khách trả hàng", khach_tra_hang: "Khách trả hàng", kiem_ke: "Kiểm kê điều chỉnh", huy_nhap_hang: "Hủy nhập hàng",

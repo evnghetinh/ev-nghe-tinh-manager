@@ -23,6 +23,11 @@ type Lech = { order_id: string; ma_phieu: string; tong_khoan_thu: number; tong_s
 type ChuaGhi = { o_cost: string; o_order: string; o_ma_phieu: string; o_khach: string | null; o_kind: string; o_noi_dung: string; o_so_tien: number; o_ngay_tao: string };
 type TongCp = { so_chua_ghi: number; tien_chua_ghi: number; so_chua_chi: number; tien_chua_chi: number; tong_chi_phi_da_ghi: number; tong_so_quy: number };
 type LechCp = { o_cost: string; o_order: string; o_ma_phieu: string; o_noi_dung: string; o_chi_phi: number; o_so_quy: number; o_lech: number };
+type LechHuy = { o_order: string; o_ma_phieu: string; o_khach: string | null; o_huy_luc: string | null; o_thu: number; o_thu_quy: number; o_chi_phi: number; o_chi_quy: number; o_kho_dong: number; o_kho_lech: number };
+type XemTruoc = {
+  phieu: { order_id: string; ma_phieu: string; khach: string | null; so_khoan_thu: number; tien_thu: number; so_chi_phi: number; tien_chi_phi: number; tien_chi_quy: number; quy: { quy: string; thay_doi: number }[]; kho: { ten: string; so_luong: number }[] }[];
+  quy: { quy: string; so_du_truoc: number; thay_doi: number; so_du_sau: number }[];
+};
 const KIND_CP: Record<string, string> = { vat_tu: "Vật tư tiêu hao", thue_ngoai: "Thuê ngoài", khac: "Khác" };
 
 const LOAI: Record<string, string> = { thu: "Thu", chi: "Chi", chuyen_quy: "Chuyển quỹ", kiem_quy: "Kiểm quỹ", dao: "Đảo (hủy)" };
@@ -72,6 +77,10 @@ export default function SoQuyPage() {
   const [tongCp, setTongCp] = useState<TongCp | null>(null);
   const [chuaGhi, setChuaGhi] = useState<ChuaGhi[] | null>(null);
   const [lechCp, setLechCp] = useState<LechCp[] | null>(null);
+  const [lechHuy, setLechHuy] = useState<LechHuy[] | null>(null);
+  const [tongHuy, setTongHuy] = useState(0);
+  const [xemTruoc, setXemTruoc] = useState<XemTruoc | null>(null);
+  const [cum, setCum] = useState("");
   const [f, setF] = useState({ quy: "Tiền mặt" as string, den: "Tài khoản ngân hàng" as string, tien: "", doiTuong: "khach", ten: "", phieu: "", danhMuc: "", ghiChu: "", loaiChi: "Chi phí vận hành", nhap: "", lyDo: "", ngay: today() });
 
   const chuaCai = QUY.filter((q) => !cai.some((c) => c.quy === q));
@@ -186,6 +195,36 @@ export default function SoQuyPage() {
     if (r.error) return setError(r.error.message + " (đã chạy giai-doan-26.sql chưa?)");
     setLechCp((r.data as LechCp[]).map((x) => ({ ...x, o_chi_phi: Number(x.o_chi_phi), o_so_quy: Number(x.o_so_quy), o_lech: Number(x.o_lech) })));
     loadTop();
+  }
+
+  async function doiChieuHuy() {
+    setError(""); setBusy(true); setXemTruoc(null); setCum("");
+    const r = await supabase.rpc("phieu_huy_doi_chieu");
+    const c = await supabase.from("repair_orders").select("id", { count: "exact", head: true }).eq("da_huy", true);
+    setBusy(false);
+    if (r.error) return setError(r.error.message + " (đã chạy giai-doan-28.sql chưa?)");
+    setTongHuy(c.count ?? 0);
+    setLechHuy((r.data as LechHuy[]).map((x) => ({ ...x, o_thu: Number(x.o_thu), o_thu_quy: Number(x.o_thu_quy), o_chi_phi: Number(x.o_chi_phi), o_chi_quy: Number(x.o_chi_quy), o_kho_dong: Number(x.o_kho_dong), o_kho_lech: Number(x.o_kho_lech) })));
+  }
+
+  async function xemTruocDao() {
+    setError(""); setBusy(true); setCum("");
+    const r = await supabase.rpc("dao_phieu_da_huy_xem_truoc");
+    setBusy(false);
+    if (r.error) return setError(r.error.message);
+    setXemTruoc(r.data as XemTruoc);
+  }
+
+  async function thucHienDao() {
+    if (cum.trim() !== "DAO PHIEU DA HUY") return setError("Hãy gõ đúng cụm DAO PHIEU DA HUY.");
+    setError(""); setBusy(true);
+    const r = await supabase.rpc("dao_phieu_da_huy", { p_xac_nhan: cum.trim() });
+    setBusy(false);
+    if (r.error) return setError(r.error.message);
+    const d = r.data as { da_dao: number; loi: { ma_phieu: string; loi: string }[] };
+    if (d.loi.length) setError(`Đã sửa ${d.da_dao} phiếu. Còn ${d.loi.length} phiếu chưa sửa được: ` + d.loi.map((x) => `${x.ma_phieu} (${x.loi})`).join("; "));
+    else setNotice(`Đã đảo xong ${d.da_dao} phiếu đã hủy và ghi nhật ký.`);
+    setXemTruoc(null); setCum(""); loadTop(); loadRows(); doiChieuHuy();
   }
 
   async function exportXlsx() {
@@ -354,6 +393,7 @@ export default function SoQuyPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <button className="btn-secondary min-h-11" disabled={busy} onClick={doiChieu}>Đối chiếu khoản thu với phiếu</button>
           <button className="btn-secondary min-h-11" disabled={busy} onClick={doiChieuCp}>Đối chiếu chi phí phiếu với quỹ</button>
+          <button className="btn-secondary min-h-11" disabled={busy} onClick={doiChieuHuy}>Đối chiếu phiếu đã hủy</button>
           {(from || to || quy || loai) && <button className="bare text-sm text-brand-700 min-h-11" onClick={() => { setFrom(""); setTo(""); setQuy(""); setLoai(""); }}>Xóa lọc</button>}
         </div>
         {lech && (
@@ -374,6 +414,50 @@ export default function SoQuyPage() {
                 <ul className="space-y-1">{lechCp.map((l) => <li key={l.o_cost}><Link href={`/tiep-nhan/${l.o_order}`} className="underline">{l.o_ma_phieu}</Link>: {l.o_noi_dung} · chi phí {money(l.o_chi_phi)} · sổ quỹ {money(l.o_so_quy)} · lệch {signed(l.o_lech)}</li>)}</ul>
               </>
             )}
+          </div>
+        )}
+        {lechHuy && (
+          <div className={`rounded-lg p-3 text-sm space-y-3 ${lechHuy.length ? "bg-red-50 text-red-800" : "bg-emerald-50 text-emerald-800"}`}>
+            {lechHuy.length === 0 ? `Khớp: cả ${tongHuy} phiếu đã hủy đều có tổng thu = 0, tổng chi = 0, tồn kho ròng = 0.` : (
+              <>
+                <div className="font-semibold">{lechHuy.length} / {tongHuy} phiếu đã hủy còn lệch:</div>
+                <ul className="space-y-2">
+                  {lechHuy.map((l) => (
+                    <li key={l.o_order} className="bg-white/70 rounded-lg p-2 break-words">
+                      <Link href={`/tiep-nhan/${l.o_order}`} className="underline font-medium inline-flex items-center min-h-11">{l.o_ma_phieu}</Link>{l.o_khach ? ` · ${l.o_khach}` : ""}
+                      <div>Còn thu {money(l.o_thu)} (sổ quỹ {money(l.o_thu_quy)}) · còn chi phí {money(l.o_chi_phi)} (sổ quỹ {money(l.o_chi_quy)}) · kho lệch {l.o_kho_dong} phụ tùng</div>
+                    </li>
+                  ))}
+                </ul>
+                <button className="btn-primary min-h-11" disabled={busy} onClick={xemTruocDao}>Xem trước việc sửa phiếu đã hủy</button>
+              </>
+            )}
+          </div>
+        )}
+        {xemTruoc && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm space-y-3">
+            <div className="font-semibold">Xem trước: chưa ghi gì. Chỉ thêm dòng đảo / đánh dấu hủy, không xóa gì.</div>
+            <ul className="space-y-2">
+              {xemTruoc.phieu.map((p) => (
+                <li key={p.order_id} className="bg-white rounded-lg p-2 break-words">
+                  <b>{p.ma_phieu}</b>{p.khach ? ` · ${p.khach}` : ""}
+                  <div>Hủy {p.so_khoan_thu} khoản thu = {money(Number(p.tien_thu))} · hủy {p.so_chi_phi} chi phí = {money(Number(p.tien_chi_phi))}</div>
+                  {p.quy.map((q) => <div key={q.quy}>Quỹ {q.quy}: {signed(Number(q.thay_doi))}</div>)}
+                  {p.kho.length > 0 && <div>Hoàn kho: {p.kho.map((k) => `${k.ten} ${Number(k.so_luong) > 0 ? "+" : ""}${Number(k.so_luong)}`).join(", ")}</div>}
+                </li>
+              ))}
+            </ul>
+            <div className="space-y-1">
+              <div className="font-semibold">Ảnh hưởng số dư quỹ:</div>
+              {xemTruoc.quy.map((q) => <div key={q.quy}>{q.quy}: {money(Number(q.so_du_truoc))} → {money(Number(q.so_du_sau))} ({signed(Number(q.thay_doi))})</div>)}
+            </div>
+            <label className="block"><span className="field-label">Gõ cụm DAO PHIEU DA HUY để xác nhận</span>
+              <input className={inp} autoCapitalize="characters" autoComplete="off" value={cum} onChange={(e) => setCum(e.target.value)} placeholder="DAO PHIEU DA HUY" />
+            </label>
+            <div className="flex gap-2 flex-wrap">
+              <button className="btn-primary min-h-11 disabled:opacity-50" disabled={busy || cum.trim() !== "DAO PHIEU DA HUY"} onClick={thucHienDao}>Đảo phiếu đã hủy</button>
+              <button className="btn-secondary min-h-11" onClick={() => { setXemTruoc(null); setCum(""); }}>Đóng</button>
+            </div>
           </div>
         )}
       </div>

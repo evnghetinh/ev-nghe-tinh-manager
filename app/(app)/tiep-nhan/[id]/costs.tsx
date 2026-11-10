@@ -36,7 +36,10 @@ function VuotBox({ msg, ok, ly, onOk, onLy }: { msg: string; ok: boolean; ly: st
   );
 }
 
-export default function Costs({ orderId, revenue, partsCost }: { orderId: string; revenue: number; partsCost: number }) {
+export default function Costs({ orderId, revenue: revenueIn, partsCost: partsCostIn, cancelled = false, huyLuc = null }: { orderId: string; revenue: number; partsCost: number; cancelled?: boolean; huyLuc?: string | null }) {
+  // Phiếu đã hủy: không tính doanh thu, giá vốn, lợi nhuận
+  const revenue = cancelled ? 0 : revenueIn;
+  const partsCost = cancelled ? 0 : partsCostIn;
   const [costs, setCosts] = useState<Cost[]>([]);
   const [dongs, setDongs] = useState<Record<string, Dong>>({});
   const [du, setDu] = useState<Partial<Record<Quy, number>>>({});
@@ -176,7 +179,8 @@ export default function Costs({ orderId, revenue, partsCost }: { orderId: string
       {error && <p className="text-sm text-red-600 break-words">{error}</p>}
       {notice && <p className="text-sm text-emerald-700 break-words">{notice}</p>}
 
-      <form onSubmit={save} className="grid gap-3 sm:grid-cols-2">
+      {cancelled && <p className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800">Phiếu đã hủy: mọi chi phí đã được hủy và đảo khỏi sổ quỹ. Không thêm hoặc sửa chi phí được nữa.</p>}
+      {!cancelled && <form onSubmit={save} className="grid gap-3 sm:grid-cols-2">
         <select className={inp} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as Kind })}>
           {KINDS.map((k) => <option key={k.v} value={k.v}>{k.label}</option>)}
         </select>
@@ -213,7 +217,7 @@ export default function Costs({ orderId, revenue, partsCost }: { orderId: string
           <button disabled={busy} className="bg-amber-600 text-white rounded-lg px-4 py-2 min-h-11 disabled:opacity-50">{editId ? "Lưu sửa" : "Thêm chi phí"}</button>
           {editId && <button type="button" onClick={resetForm} className="border rounded-lg px-4 py-2 min-h-11">Hủy sửa</button>}
         </div>
-      </form>
+      </form>}
 
       <ul className="space-y-2">
         {costs.map((c) => {
@@ -232,11 +236,12 @@ export default function Costs({ orderId, revenue, partsCost }: { orderId: string
                   )}
                   {!c.da_huy && c.trang_thai_quy === "chua_chi" && <span className="inline-block mt-1 text-xs font-semibold bg-amber-100 text-amber-800 rounded-full px-2 py-0.5">Chưa chi</span>}
                   {!c.da_huy && c.trang_thai_quy === "chua_ghi" && <span className="inline-block mt-1 text-xs font-semibold bg-slate-200 text-slate-700 rounded-full px-2 py-0.5">Chưa ghi vào sổ quỹ</span>}
+                  {c.da_huy && cancelled && !!huyLuc && !!c.huy_luc && new Date(c.huy_luc).getTime() >= new Date(huyLuc).getTime() && <span className="inline-block mt-1 text-xs font-semibold bg-red-100 text-red-700 rounded-full px-2 py-0.5">Đã hủy do hủy phiếu</span>}
                   {c.da_huy && <div className="text-xs text-red-600">Đã hủy bởi {c.huy_boi_ten ?? "Không rõ"} lúc {c.huy_luc ? new Date(c.huy_luc).toLocaleString("vi-VN") : ""} · Lý do: {c.huy_ly_do}</div>}
                 </div>
                 <div className={`font-medium text-sm shrink-0 ${c.da_huy ? "line-through" : ""}`}>{money(c.amount)}</div>
               </div>
-              {!c.da_huy && (
+              {!c.da_huy && !cancelled && (
                 <div className="flex flex-wrap gap-2 text-sm">
                   {c.trang_thai_quy === "chua_chi" && <button disabled={busy} onClick={() => startPay(c)} className="border border-emerald-600 text-emerald-700 rounded-lg px-3 min-h-11">Ghi đã chi</button>}
                   {c.trang_thai_quy === "chua_ghi" && <button disabled={busy} onClick={() => startPay(c)} className="border border-emerald-600 text-emerald-700 rounded-lg px-3 min-h-11">Ghi vào sổ quỹ</button>}

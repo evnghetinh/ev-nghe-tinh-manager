@@ -16,8 +16,8 @@ const lineTotal = (i: { qty: number; unit_price: number }) => Math.round(i.qty *
 type Part = { id: string; name: string; code: string | null; sale_price: number; stock: number } & DonVi;
 type Past = { id: string; code: number; received_at: string; odometer: number | null; issue: string; status: string; items: { kind: "part" | "labor"; name: string; qty: number }[] };
 type Log = { id: string; action: "them" | "xoa" | "tra"; ghi_chu: string | null; kind: "part" | "labor"; item_name: string; qty: number; unit_price: number; total_before: number; total_after: number; created_by_name: string | null; created_at: string };
-type Pay = { id: string; loai: "thu" | "dieu_chinh" | "dao"; so_tien: number; hinh_thuc: string; ngay_thu: string; ghi_chu: string | null; da_huy: boolean; huy_ly_do: string | null; huy_boi_ten: string | null; huy_luc: string | null; created_by_name: string | null; created_at: string };
-const LOAI_THU: Record<string, string> = { thu: "Khoản thu", dieu_chinh: "Điều chỉnh", dao: "Đảo (hủy phiếu)" };
+type Pay = { id: string; ref_id: string | null; loai: "thu" | "dieu_chinh" | "dao"; so_tien: number; hinh_thuc: string; ngay_thu: string; ghi_chu: string | null; da_huy: boolean; huy_ly_do: string | null; huy_boi_ten: string | null; huy_luc: string | null; created_by_name: string | null; created_at: string };
+const LOAI_THU: Record<string, string> = { thu: "Khoản thu", dieu_chinh: "Điều chỉnh", dao: "Dòng đảo do hủy phiếu" };
 type Order = { code: number; issue: string; status: string; payment_method: string | null; paid_at: string | null; stock_deducted: boolean; da_huy: boolean; huy_ly_do: string | null; huy_boi_ten: string | null; huy_luc: string | null; odometer: number | null; vehicles: { plate: string; hang_xe: string | null; dong_xe: string | null; nam_san_xuat: number | null; mau_xe: string | null } | null; customers: { name: string; phone: string | null; address: string | null } | null };
 
 export default function QuotePage() {
@@ -50,7 +50,7 @@ export default function QuotePage() {
     if (o.error) setError(o.error.message); else setOrder(o.data as unknown as Order);
     if (i.error) setError(i.error.message); else if (i.data) setItems((i.data as Item[]).map((x) => ({ ...x, qty: Number(x.qty), unit_price: Number(x.unit_price) })));
     if (p.data) setParts((p.data as Part[]).map((x) => ({ ...x, stock: Number(x.stock), he_so: Number(x.he_so) })));
-    const pm = await supabase.from("order_payments").select("id, loai, so_tien, hinh_thuc, ngay_thu, ghi_chu, da_huy, huy_ly_do, huy_boi_ten, huy_luc, created_by_name, created_at").eq("order_id", id).order("seq");
+    const pm = await supabase.from("order_payments").select("id, ref_id, loai, so_tien, hinh_thuc, ngay_thu, ghi_chu, da_huy, huy_ly_do, huy_boi_ten, huy_luc, created_by_name, created_at").eq("order_id", id).order("seq");
     if (pm.data) setPays((pm.data as Pay[]).map((x) => ({ ...x, so_tien: Number(x.so_tien) })));
     if (role === "chu") {
       const l = await supabase.from("repair_edit_logs").select("id, action, ghi_chu, kind, item_name, qty, unit_price, total_before, total_after, created_by_name, created_at").eq("order_id", id).order("created_at", { ascending: false });
@@ -138,14 +138,14 @@ export default function QuotePage() {
     setRet(null); report(r.data); load();
   }
   async function cancelOrder() {
-    const ly = window.prompt("Hủy phiếu: kho được hoàn lại qua sổ kho, các khoản thu được đảo bằng dòng điều chỉnh, phiếu bị loại khỏi doanh thu và lợi nhuận. Không hoàn tác được.\n\nLý do hủy (bắt buộc):");
+    const ly = window.prompt("Hủy phiếu: kho được hoàn lại, mọi khoản đã thu được đảo khỏi sổ quỹ, mọi chi phí của phiếu được hủy (khoản đã chi được đảo khỏi sổ quỹ), phiếu bị loại khỏi doanh thu, lợi nhuận và công nợ. Không hoàn tác được.\n\nLý do hủy (bắt buộc):");
     if (ly === null) return;
     if (!ly.trim()) return setError("Bắt buộc nhập lý do hủy phiếu.");
     setBusy(true);
     const r = await supabase.rpc("huy_phieu", { p_order: id, p_ly_do: ly.trim() });
     setBusy(false);
     if (r.error) return setError(r.error.message);
-    setNotice("Đã hủy phiếu và ghi nhật ký."); load();
+    setNotice("Đã hủy phiếu: hoàn kho, đảo khoản thu, hủy chi phí và ghi nhật ký."); load();
   }
   async function cancelPay(p: Pay) {
     const ly = window.prompt(`Hủy khoản thu ${money(p.so_tien)} (${p.hinh_thuc}). Dòng được giữ lại và đánh dấu đã hủy; muốn sửa số tiền thì ghi khoản thu mới.\n\nLý do hủy (bắt buộc):`);
@@ -196,8 +196,11 @@ export default function QuotePage() {
   const cancelled = !!order?.da_huy;
   const canEdit = !cancelled && (!done || (role === "chu" && editing));
   const thuRong = pays.filter((p) => !p.da_huy).reduce((s, p) => s + p.so_tien, 0);
-  const conNo = Math.max(0, Math.round(partsTotal + laborTotal - thuRong));
-  const conThieu =Math.round(partsTotal + laborTotal - thuRong);
+  const conNo = cancelled ? 0 : Math.max(0, Math.round(partsTotal + laborTotal - thuRong));
+  const conThieu = cancelled ? 0 : Math.round(partsTotal + laborTotal - thuRong);
+  // Phiếu đã hủy: khoản thu đã bị đảo (đánh dấu hủy, hoặc có dòng đảo kiểu cũ)
+  const daDao = (p: Pay) => cancelled && p.loai !== "dao" && (p.da_huy || pays.some((d) => d.loai === "dao" && d.ref_id === p.id && !d.da_huy));
+  const huyCungPhieu = (p: Pay) => !!order?.huy_luc && !!p.huy_luc && new Date(p.huy_luc).getTime() >= new Date(order.huy_luc).getTime();
   const input = "w-full border px-3 py-2";
 
   return (
@@ -312,14 +315,16 @@ export default function QuotePage() {
             <div className="rounded-lg bg-green-50 p-2"><div className="text-slate-500">Đã thu</div><b className="text-green-700">{money(thuRong)}</b></div>
             <div className={`rounded-lg p-2 ${conNo > 0 ? "bg-amber-50" : "bg-green-50"}`}><div className="text-slate-500">Còn nợ</div><b className={conNo > 0 ? "text-amber-700" : "text-green-700"}>{money(conNo)}</b></div>
           </div>
+          {cancelled && Math.round(thuRong) !== 0 && <p className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800">Phiếu đã hủy nhưng còn lệch {money(thuRong)} chưa đảo. Chủ xưởng vào Sổ quỹ → &quot;Đối chiếu phiếu đã hủy&quot; để sửa.</p>}
           {conThieu < 0 && <p className="text-sm text-amber-700">Thu dư {money(-conThieu)} so với tổng phiếu.</p>}
           <ul className="space-y-2">
             {pays.map((p) => (
-              <li key={p.id} className={`border rounded-lg p-3 text-sm space-y-1 ${p.da_huy ? "bg-slate-50 text-slate-400" : ""}`}>
+              <li key={p.id} className={`border rounded-lg p-3 text-sm space-y-1 ${p.da_huy || daDao(p) ? "bg-slate-50 text-slate-400" : ""}`}>
                 <div className="flex justify-between gap-2">
-                  <span><b className={p.da_huy ? "line-through" : p.so_tien < 0 ? "text-red-600" : ""}>{LOAI_THU[p.loai]}</b> · {p.hinh_thuc} · {p.ngay_thu.split("-").reverse().join("/")}</span>
-                  <b className={p.da_huy ? "line-through" : p.so_tien < 0 ? "text-red-600" : "text-green-700"}>{p.so_tien > 0 && p.loai !== "thu" ? "+" : ""}{money(p.so_tien)}</b>
+                  <span><b className={p.da_huy || daDao(p) ? "line-through" : p.so_tien < 0 ? "text-red-600" : ""}>{LOAI_THU[p.loai]}</b> · {p.hinh_thuc} · {p.ngay_thu.split("-").reverse().join("/")}</span>
+                  <b className={p.da_huy || daDao(p) ? "line-through" : p.so_tien < 0 ? "text-red-600" : "text-green-700"}>{p.so_tien > 0 && p.loai !== "thu" ? "+" : ""}{money(p.so_tien)}</b>
                 </div>
+                {daDao(p) && <span className="inline-block text-xs font-semibold bg-red-100 text-red-700 rounded-full px-2 py-0.5">{p.da_huy && !huyCungPhieu(p) ? "đã hủy" : "đã hủy do hủy phiếu"}</span>}
                 {p.ghi_chu && <div>{p.ghi_chu}</div>}
                 <div className="text-xs">Ghi bởi {p.created_by_name ?? "Không rõ"} · {new Date(p.created_at).toLocaleString("vi-VN")}</div>
                 {p.da_huy && <div className="text-xs text-red-600">Đã hủy bởi {p.huy_boi_ten ?? "Không rõ"} lúc {p.huy_luc ? new Date(p.huy_luc).toLocaleString("vi-VN") : ""} · Lý do: {p.huy_ly_do}</div>}
@@ -368,7 +373,7 @@ export default function QuotePage() {
         </section>
       )}
 
-      {role === "chu" && <Costs orderId={id} revenue={partsTotal + laborTotal} partsCost={partsCost} />}
+      {role === "chu" && <Costs orderId={id} revenue={partsTotal + laborTotal} partsCost={partsCost} cancelled={cancelled} huyLuc={order?.huy_luc ?? null} />}
 
       {order && <EvInfo key={String(done)} orderId={id} done={done} />}
 

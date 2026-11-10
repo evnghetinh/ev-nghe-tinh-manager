@@ -26,7 +26,7 @@ Luôn tuân theo mọi lần làm việc.
 
 ## 5. SQL
 - Viết để chạy lại an toàn; bật RLS.
-- Lưu thành file `giai-doan-NN.sql`, NN là số tiếp theo (hiện đã có đến giai-doan-22, file kế tiếp là **23**).
+- Lưu thành file `giai-doan-NN.sql`, NN là số tiếp theo (hiện đã có đến giai-doan-28, file kế tiếp là **29**).
 - Mở file bằng Notepad cho người dùng dán vào Supabase.
 - Không dùng drop table, drop column, truncate (trừ chốt chặn bảo vệ).
 
