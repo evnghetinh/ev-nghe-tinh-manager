@@ -28,6 +28,11 @@ type XemTruoc = {
   phieu: { order_id: string; ma_phieu: string; khach: string | null; so_khoan_thu: number; tien_thu: number; so_chi_phi: number; tien_chi_phi: number; tien_chi_quy: number; quy: { quy: string; thay_doi: number }[]; kho: { ten: string; so_luong: number }[] }[];
   quy: { quy: string; so_du_truoc: number; thay_doi: number; so_du_sau: number }[];
 };
+type QuyThang = { quy: Quy; dau: number; thu: number; chi: number; chuyen: number; kiem: number; cuoi: number };
+type NhomTien = { nhom: string; tien_mat: number; tai_khoan: number; tong: number; tinh_vao_lai_lo?: boolean };
+type TongThang = { co_du_lieu: boolean; bat_dau: string | null; quy?: QuyThang[]; thu?: NhomTien[]; chi?: NhomTien[] };
+type Thang12 = { thang: number; co_du_lieu: boolean; thu: number; chi: number };
+const NHOM_THU: Record<string, string> = { thu_phieu: "Từ phiếu sửa chữa", thu_no: "Thu nợ khách", thu_khac: "Phiếu thu khác" };
 const KIND_CP: Record<string, string> = { vat_tu: "Vật tư tiêu hao", thue_ngoai: "Thuê ngoài", khac: "Khác" };
 
 const LOAI: Record<string, string> = { thu: "Thu", chi: "Chi", chuyen_quy: "Chuyển quỹ", kiem_quy: "Kiểm quỹ", dao: "Đảo (hủy)" };
@@ -37,8 +42,14 @@ const PAGE = 100;
 const today = () => new Date().toLocaleDateString("sv-SE");
 const fmtDate = (d: string) => d.split("-").reverse().join("/");
 const fmtTime = (s: string) => new Date(s).toLocaleString("vi-VN");
+const signedIf = (n: number, co: boolean) => (co ? signed(n) : money(n));
 const signed = (n: number) => (n > 0 ? "+" : n < 0 ? "−" : "") + money(Math.abs(n));
 const inp = "w-full border px-3 py-2 bg-white";
+const pad2 = (n: number) => String(n).padStart(2, "0");
+const rangeThang = (n: number, t: number) => ({ from: `${n}-${pad2(t)}-01`, to: `${n}-${pad2(t)}-${pad2(new Date(n, t, 0).getDate())}` });
+const nowNT = () => { const d = new Date(); return { n: d.getFullYear(), t: d.getMonth() + 1 }; };
+const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
+const lechQuy = (x?: QuyThang) => (x ? Number(x.dau) + Number(x.thu) - Number(x.chi) + Number(x.chuyen) + Number(x.kiem) - Number(x.cuoi) : 0);
 
 function MoneyInput({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
   return (
@@ -63,8 +74,13 @@ export default function SoQuyPage() {
   const [rows, setRows] = useState<Dong[]>([]);
   const [more, setMore] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [nam, setNam] = useState(() => nowNT().n);
+  const [thang, setThang] = useState(() => nowNT().t);
+  const [namBang, setNamBang] = useState(() => nowNT().n);
+  const [from, setFrom] = useState(() => rangeThang(nowNT().n, nowNT().t).from);
+  const [to, setTo] = useState(() => rangeThang(nowNT().n, nowNT().t).to);
+  const [tongThang, setTongThang] = useState<TongThang | null>(null);
+  const [bang12, setBang12] = useState<Thang12[] | null>(null);
   const [quy, setQuy] = useState("");
   const [loai, setLoai] = useState("");
   const [error, setError] = useState("");
@@ -104,6 +120,27 @@ export default function SoQuyPage() {
     setCapNhat(new Date().toLocaleString("vi-VN"));
   }, []);
 
+  const loadTong = useCallback(async () => {
+    const r = await supabase.rpc("so_quy_tong_thang", { p_nam: nam, p_thang: thang });
+    if (r.error) return setError(r.error.message + " (đã chạy giai-doan-30.sql chưa?)");
+    setTongThang(r.data as TongThang);
+  }, [nam, thang]);
+
+  const loadBang12 = useCallback(async () => {
+    const r = await supabase.rpc("so_quy_12_thang", { p_nam: namBang });
+    if (r.error) return setError(r.error.message + " (đã chạy giai-doan-30.sql chưa?)");
+    setBang12((r.data as Thang12[]).map((x) => ({ ...x, thu: Number(x.thu), chi: Number(x.chi) })));
+  }, [namBang]);
+
+  function chonThang(n: number, t: number) {
+    setNam(n); setThang(t); setNamBang(n);
+    const r = rangeThang(n, t); setFrom(r.from); setTo(r.to);
+  }
+  function lui(d: number) {
+    const x = new Date(nam, thang - 1 + d, 1);
+    chonThang(x.getFullYear(), x.getMonth() + 1);
+  }
+
   const build = useCallback(() => {
     let q = supabase.from("so_quy_xem").select("*");
     if (from) q = q.gte("ngay", from);
@@ -125,6 +162,12 @@ export default function SoQuyPage() {
   useEffect(() => { if (role === "chu") loadTop(); }, [role, loadTop]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (role === "chu") loadRows(); }, [role, loadRows]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (role === "chu") loadTong(); }, [role, loadTong]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (role === "chu") loadBang12(); }, [role, loadBang12]);
+
+  function loadSoLieu() { loadTop(); loadRows(); loadTong(); loadBang12(); }
 
   async function loadMore() {
     setLoading(true);
@@ -157,7 +200,7 @@ export default function SoQuyPage() {
     if (!r || r.error) return setError(r?.error?.message ?? "Có lỗi");
     setNotice(ok); setForm("");
     setF({ ...f, tien: "", ten: "", phieu: "", danhMuc: "", ghiChu: "", nhap: "", lyDo: "" });
-    loadTop(); loadRows();
+    loadSoLieu();
   }
 
   async function huy(d: Dong) {
@@ -168,7 +211,7 @@ export default function SoQuyPage() {
     const r = await supabase.rpc("huy_giao_dich_quy", { p_id: d.id, p_ly_do: ly.trim() });
     setBusy(false);
     if (r.error) return setError(r.error.message);
-    setNotice("Đã hủy giao dịch (thêm dòng đảo)."); loadTop(); loadRows();
+    setNotice("Đã hủy giao dịch (thêm dòng đảo)."); loadSoLieu();
   }
 
   async function doiChieu() {
@@ -224,14 +267,15 @@ export default function SoQuyPage() {
     const d = r.data as { da_dao: number; loi: { ma_phieu: string; loi: string }[] };
     if (d.loi.length) setError(`Đã sửa ${d.da_dao} phiếu. Còn ${d.loi.length} phiếu chưa sửa được: ` + d.loi.map((x) => `${x.ma_phieu} (${x.loi})`).join("; "));
     else setNotice(`Đã đảo xong ${d.da_dao} phiếu đã hủy và ghi nhật ký.`);
-    setXemTruoc(null); setCum(""); loadTop(); loadRows(); doiChieuHuy();
+    setXemTruoc(null); setCum(""); loadSoLieu(); doiChieuHuy();
   }
 
   async function exportXlsx() {
     setBusy(true); setError("");
+    const kyHan = rangeThang(nam, thang);
     const all: Dong[] = [];
-    for (let s = 0; s < 50000; s += 1000) {
-      const r = await build().range(s, s + 999);
+    for (let st = 0; st < 50000; st += 1000) {
+      const r = await supabase.from("so_quy_xem").select("*").gte("ngay", kyHan.from).lte("ngay", kyHan.to).order("seq", { ascending: false }).range(st, st + 999);
       if (r.error) { setError(r.error.message); setBusy(false); return; }
       all.push(...(r.data as Dong[]));
       if ((r.data?.length ?? 0) < 1000) break;
@@ -243,11 +287,43 @@ export default function SoQuyPage() {
     const ws = XLSX.utils.aoa_to_sheet([head, ...data]);
     ws["!cols"] = [{ wch: 11 }, { wch: 19 }, { wch: 19 }, { wch: 12 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 22 }, { wch: 12 }, { wch: 22 }, { wch: 10 }, { wch: 40 }, { wch: 30 }, { wch: 16 }, { wch: 8 }];
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Sổ quỹ");
-    XLSX.writeFile(wb, `so-quy-${today()}.xlsx`);
+    const tq: (string | number)[][] = [[`Tổng quát thu chi tháng ${pad2(thang)}/${nam}`], []];
+    const T = tongThang;
+    if (!T || !T.co_du_lieu) tq.push(["Chưa có dữ liệu sổ quỹ cho tháng này"]);
+    else {
+      const qs = T.quy ?? [];
+      const g = (k: "dau" | "thu" | "chi" | "chuyen" | "kiem" | "cuoi") => sum(qs.map((x) => Number(x[k])));
+      const q = (n: Quy, k: "dau" | "thu" | "chi" | "chuyen" | "kiem" | "cuoi") => Number(qs.find((x) => x.quy === n)?.[k] ?? 0);
+      tq.push(["Chỉ tiêu", "Tiền mặt", "Tài khoản ngân hàng", "Tổng"]);
+      tq.push(["Tổng đã thu", q("Tiền mặt", "thu"), q("Tài khoản ngân hàng", "thu"), g("thu")]);
+      tq.push(["Tổng đã chi", q("Tiền mặt", "chi"), q("Tài khoản ngân hàng", "chi"), g("chi")]);
+      tq.push(["Chênh lệch (thu trừ chi)", q("Tiền mặt", "thu") - q("Tiền mặt", "chi"), q("Tài khoản ngân hàng", "thu") - q("Tài khoản ngân hàng", "chi"), g("thu") - g("chi")]);
+      tq.push(["Số dư đầu tháng", q("Tiền mặt", "dau"), q("Tài khoản ngân hàng", "dau"), g("dau")]);
+      tq.push(["Chuyển quỹ (±)", q("Tiền mặt", "chuyen"), q("Tài khoản ngân hàng", "chuyen"), g("chuyen")]);
+      tq.push(["Điều chỉnh kiểm quỹ (±)", q("Tiền mặt", "kiem"), q("Tài khoản ngân hàng", "kiem"), g("kiem")]);
+      tq.push(["Số dư cuối tháng", q("Tiền mặt", "cuoi"), q("Tài khoản ngân hàng", "cuoi"), g("cuoi")]);
+      tq.push(["Kiểm tra lệch (0 = khớp)", lechQuy(qs.find((x) => x.quy === "Tiền mặt")), lechQuy(qs.find((x) => x.quy === "Tài khoản ngân hàng")), sum(qs.map(lechQuy))]);
+      tq.push([], ["Thu theo loại", "Tiền mặt", "Tài khoản ngân hàng", "Tổng"]);
+      for (const x of T.thu ?? []) tq.push([NHOM_THU[x.nhom] ?? x.nhom, Number(x.tien_mat), Number(x.tai_khoan), Number(x.tong)]);
+      tq.push([], ["Chi theo loại", "Tiền mặt", "Tài khoản ngân hàng", "Tổng", "Lãi lỗ"]);
+      for (const x of T.chi ?? []) tq.push([x.nhom, Number(x.tien_mat), Number(x.tai_khoan), Number(x.tong), x.tinh_vao_lai_lo ? "Tính vào lãi lỗ" : "Không tính vào lãi lỗ"]);
+    }
+    const ws1 = XLSX.utils.aoa_to_sheet(tq);
+    ws1["!cols"] = [{ wch: 36 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 24 }];
+    XLSX.utils.book_append_sheet(wb, ws1, "Tổng quát");
+    XLSX.utils.book_append_sheet(wb, ws, "Giao dịch");
+    XLSX.writeFile(wb, `so-quy-${nam}-${pad2(thang)}.xlsx`);
     setBusy(false);
   }
 
+  const nam2 = useMemo(() => {
+    const y0 = tongThang?.bat_dau ? Number(tongThang.bat_dau.slice(0, 4)) : nowNT().n - 3;
+    const ds: number[] = [];
+    for (let y = Math.min(y0, nowNT().n - 1); y <= nowNT().n + 1; y++) ds.push(y);
+    if (!ds.includes(nam)) ds.push(nam);
+    if (!ds.includes(namBang)) ds.push(namBang);
+    return ds.sort((a, b) => a - b);
+  }, [tongThang, nam, namBang]);
   const tong = useMemo(() => (Object.values(du).length ? Object.values(du).reduce((a, b) => a + (b ?? 0), 0) : null), [du]);
   const loaiDangChon = loaiChi.find((l) => l.ten === f.loaiChi);
 
@@ -262,6 +338,114 @@ export default function SoQuyPage() {
       <Toast text={notice} kind="ok" onClose={() => setNotice("")} />
 
       <p className="text-sm text-slate-600">Sổ quỹ chỉ ghi nhận dòng tiền vào/ra, <b>không đổi</b> cách tính doanh thu, lợi nhuận, thu hồi vốn. Khách còn nợ chưa trả thì chưa vào quỹ. Dòng đã ghi không sửa, không xóa; muốn hủy thì thêm dòng đảo có lý do.</p>
+
+      <div className="card space-y-3">
+        <div className="flex items-end gap-2">
+          <button className="btn-secondary min-h-11 min-w-11" aria-label="Tháng trước" onClick={() => lui(-1)}>‹</button>
+          <label className="block flex-1 min-w-0"><span className="field-label">Tháng</span>
+            <select className={inp} value={thang} onChange={(e) => chonThang(nam, Number(e.target.value))}>{Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>Tháng {i + 1}</option>)}</select></label>
+          <label className="block flex-1 min-w-0"><span className="field-label">Năm</span>
+            <select className={inp} value={nam} onChange={(e) => chonThang(Number(e.target.value), thang)}>{nam2.map((y) => <option key={y} value={y}>{y}</option>)}</select></label>
+          <button className="btn-secondary min-h-11 min-w-11" aria-label="Tháng sau" onClick={() => lui(1)}>›</button>
+        </div>
+        {!tongThang ? <LoadingBlock rows={2} /> : !tongThang.co_du_lieu ? (
+          <div className="rounded-lg bg-slate-100 p-3 text-sm text-slate-600">Tháng {thang}/{nam}: chưa có dữ liệu sổ quỹ{tongThang.bat_dau ? ` (sổ quỹ bắt đầu từ ${fmtDate(tongThang.bat_dau)})` : ""}.</div>
+        ) : (() => {
+          const qs = tongThang.quy ?? [];
+          const qv = (n: Quy) => qs.find((x) => x.quy === n);
+          const tThu = sum(qs.map((x) => Number(x.thu))), tChi = sum(qs.map((x) => Number(x.chi)));
+          const tLech = sum(qs.map(lechQuy));
+          const the = (ten: string, tong: number, tm: number, tk: number, mau: string, coDau: boolean) => (
+            <div className="card">
+              <div className="text-sm text-slate-500">{ten}</div>
+              <div className={`text-xl font-bold ${mau}`}>{signedIf(tong, coDau)}</div>
+              <div className="text-xs text-slate-500">Tiền mặt: {signedIf(tm, coDau)}</div>
+              <div className="text-xs text-slate-500">Tài khoản: {signedIf(tk, coDau)}</div>
+            </div>
+          );
+          const cl = (n: Quy) => Number(qv(n)?.thu ?? 0) - Number(qv(n)?.chi ?? 0);
+          const tong3 = { quy: "Tổng hai quỹ", dau: sum(qs.map((y) => Number(y.dau))), thu: tThu, chi: tChi, chuyen: sum(qs.map((y) => Number(y.chuyen))), kiem: sum(qs.map((y) => Number(y.kiem))), cuoi: sum(qs.map((y) => Number(y.cuoi))) };
+          return (
+            <>
+              <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
+                {the("Tổng đã thu", tThu, Number(qv("Tiền mặt")?.thu ?? 0), Number(qv("Tài khoản ngân hàng")?.thu ?? 0), "text-emerald-700", false)}
+                {the("Tổng đã chi", tChi, Number(qv("Tiền mặt")?.chi ?? 0), Number(qv("Tài khoản ngân hàng")?.chi ?? 0), "text-red-700", false)}
+                {the("Chênh lệch (thu trừ chi)", tThu - tChi, cl("Tiền mặt"), cl("Tài khoản ngân hàng"), tThu - tChi < 0 ? "text-red-700" : "text-navy-900", true)}
+              </div>
+              <p className="text-xs text-slate-500">Chuyển quỹ không tính vào thu hay chi. Kiểm quỹ điều chỉnh hiện riêng. Giao dịch hủy (dòng đảo) tính vào tháng ghi dòng đảo và làm số ròng.</p>
+
+              <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
+                {[...qs.map((x) => ({ k: x, l: lechQuy(x), tong: false })), { k: tong3, l: tLech, tong: true }].map(({ k, l, tong: la }) => (
+                  <div key={k.quy} className={`rounded-lg border p-3 text-sm space-y-1 ${la ? "border-2 border-navy-900" : ""}`}>
+                    <div className="font-semibold">{k.quy}</div>
+                    <div className="flex justify-between gap-2"><span>Số dư đầu tháng</span><b>{money(Number(k.dau))}</b></div>
+                    <div className="flex justify-between gap-2"><span>+ Thu</span><span className="text-emerald-700">{money(Number(k.thu))}</span></div>
+                    <div className="flex justify-between gap-2"><span>− Chi</span><span className="text-red-700">{money(Number(k.chi))}</span></div>
+                    <div className="flex justify-between gap-2"><span>± Chuyển quỹ</span><span>{signed(Number(k.chuyen))}</span></div>
+                    <div className="flex justify-between gap-2"><span>± Điều chỉnh kiểm quỹ</span><span>{signed(Number(k.kiem))}</span></div>
+                    <div className="flex justify-between gap-2 border-t pt-1"><span>Số dư cuối tháng</span><b>{money(Number(k.cuoi))}</b></div>
+                    {Math.abs(l) > 0.5
+                      ? <div className="rounded bg-red-50 text-red-700 p-2 font-medium">CẢNH BÁO: số liệu lệch {signed(l)}</div>
+                      : <div className="text-xs text-emerald-700">Khớp: đầu + thu − chi ± chuyển ± điều chỉnh = cuối</div>}
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
+                <div className="rounded-lg border p-3 space-y-2">
+                  <div className="font-semibold">Thu theo loại</div>
+                  {(tongThang.thu ?? []).map((x) => (
+                    <div key={x.nhom} className="flex justify-between gap-3 text-sm">
+                      <div className="min-w-0"><div>{NHOM_THU[x.nhom] ?? x.nhom}</div><div className="text-xs text-slate-500">Tiền mặt {money(Number(x.tien_mat))} · TK {money(Number(x.tai_khoan))}</div></div>
+                      <b className="shrink-0">{money(Number(x.tong))}</b>
+                    </div>
+                  ))}
+                  <div className="flex justify-between gap-3 border-t pt-1 font-semibold"><span>Cộng</span><span>{money(tThu)}</span></div>
+                </div>
+                <div className="rounded-lg border p-3 space-y-2">
+                  <div className="font-semibold">Chi theo loại</div>
+                  {(tongThang.chi ?? []).map((x) => (
+                    <div key={x.nhom} className="flex justify-between gap-3 text-sm">
+                      <div className="min-w-0">
+                        <div>{x.nhom} <span className={`badge ${x.tinh_vao_lai_lo ? "bg-amber-100 text-amber-800" : "bg-sky-100 text-sky-800"}`}>{x.tinh_vao_lai_lo ? "tính vào lãi lỗ" : "không tính vào lãi lỗ"}</span></div>
+                        <div className="text-xs text-slate-500">Tiền mặt {money(Number(x.tien_mat))} · TK {money(Number(x.tai_khoan))}</div>
+                      </div>
+                      <b className="shrink-0">{money(Number(x.tong))}</b>
+                    </div>
+                  ))}
+                  <div className="flex justify-between gap-3 border-t pt-1 font-semibold"><span>Cộng</span><span>{money(tChi)}</span></div>
+                </div>
+              </div>
+            </>
+          );
+        })()}
+
+        <div className="space-y-2">
+          <div className="flex items-end justify-between gap-2">
+            <div className="font-semibold">Thu chi 12 tháng năm {namBang}</div>
+            <label className="block w-28"><span className="field-label">Năm</span>
+              <select className={inp} value={namBang} onChange={(e) => setNamBang(Number(e.target.value))}>{nam2.map((y) => <option key={y} value={y}>{y}</option>)}</select></label>
+          </div>
+          {!bang12 ? <LoadingBlock rows={2} /> : (
+            <div className="overflow-x-auto rounded-lg border">
+              <table className="w-full min-w-[520px] text-sm">
+                <thead><tr className="bg-slate-50 text-left"><th className="p-2">Tháng</th><th className="p-2 text-right">Thu</th><th className="p-2 text-right">Chi</th><th className="p-2 text-right">Chênh lệch</th></tr></thead>
+                <tbody>
+                  {bang12.map((m) => (
+                    <tr key={m.thang} className={`border-t ${namBang === nam && m.thang === thang ? "bg-brand-50 font-semibold" : ""}`}>
+                      <td className="p-0"><button className="bare w-full text-left px-2 min-h-11 text-brand-700 underline" onClick={() => chonThang(namBang, m.thang)}>Tháng {m.thang}</button></td>
+                      {m.co_du_lieu
+                        ? <><td className="p-2 text-right">{money(m.thu)}</td><td className="p-2 text-right">{money(m.chi)}</td><td className={`p-2 text-right ${m.thu - m.chi < 0 ? "text-red-700" : ""}`}>{signed(m.thu - m.chi)}</td></>
+                        : <td colSpan={3} className="p-2 text-right text-slate-500">chưa có dữ liệu sổ quỹ</td>}
+                    </tr>
+                  ))}
+                  <tr className="border-t-2 font-bold bg-slate-50"><td className="p-2">Cả năm</td><td className="p-2 text-right">{money(sum(bang12.map((m) => m.thu)))}</td><td className="p-2 text-right">{money(sum(bang12.map((m) => m.chi)))}</td><td className="p-2 text-right">{signed(sum(bang12.map((m) => m.thu - m.chi)))}</td></tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
         {QUY.map((q) => (
@@ -394,7 +578,7 @@ export default function SoQuyPage() {
           <button className="btn-secondary min-h-11" disabled={busy} onClick={doiChieu}>Đối chiếu khoản thu với phiếu</button>
           <button className="btn-secondary min-h-11" disabled={busy} onClick={doiChieuCp}>Đối chiếu chi phí phiếu với quỹ</button>
           <button className="btn-secondary min-h-11" disabled={busy} onClick={doiChieuHuy}>Đối chiếu phiếu đã hủy</button>
-          {(from || to || quy || loai) && <button className="bare text-sm text-brand-700 min-h-11" onClick={() => { setFrom(""); setTo(""); setQuy(""); setLoai(""); }}>Xóa lọc</button>}
+          {(from !== rangeThang(nam, thang).from || to !== rangeThang(nam, thang).to || quy || loai) && <button className="bare text-sm text-brand-700 min-h-11" onClick={() => { const r = rangeThang(nam, thang); setFrom(r.from); setTo(r.to); setQuy(""); setLoai(""); }}>Về tháng {thang}/{nam}</button>}
         </div>
         {lech && (
           <div className={`rounded-lg p-3 text-sm ${lech.length ? "bg-red-50 text-red-800" : "bg-emerald-50 text-emerald-800"}`}>
