@@ -17,7 +17,7 @@ const emptyBd = (): Bd => ({ rev: 0, parts: 0, vat_tu: 0, thue_ngoai: 0, khac: 0
 const profitOf = (b: Bd) => b.rev - b.parts - b.vat_tu - b.thue_ngoai - b.khac;
 const rows: [string, keyof Bd][] = [["Doanh thu", "rev"], ["Giá vốn phụ tùng", "parts"], ["Chi phí vật tư tiêu hao", "vat_tu"], ["Chi phí thuê ngoài", "thue_ngoai"], ["Chi phí khác", "khac"]];
 type Low = { id: string; name: string; stock: number; min_stock: number; don_vi_nhap: string; don_vi_ban: string; he_so: number };
-type Month = { label: string; rev: number; profit: number };
+type Month = { label: string; rev: number; parts: number; other: number; profit: number };
 const PAID_SEL = "paid_at, repair_items(kind, qty, unit_price, repair_item_costs(cost_price)), repair_costs(kind, amount)";
 
 export default function Dashboard() {
@@ -65,7 +65,12 @@ export default function Dashboard() {
         b.parts += r.repair_items.filter((i) => i.kind === "part").reduce((t, i) => t + i.qty * costOf(i), 0);
         for (const c of r.repair_costs ?? []) if (c.kind === "vat_tu" || c.kind === "thue_ngoai" || c.kind === "khac") b[c.kind] += c.amount;
       }
-      setMonths(keys.map((x) => ({ label: x.label, rev: agg.get(x.k)!.rev, profit: profitOf(agg.get(x.k)!) })));
+      // Tháng hiện tại lấy đúng số của thẻ "Lợi nhuận tháng này" để luôn khớp
+      agg.set(keys[5].k, mon);
+      setMonths(keys.map((x) => {
+        const b = agg.get(x.k)!;
+        return { label: x.label, rev: b.rev, parts: b.parts, other: b.vat_tu + b.thue_ngoai + b.khac, profit: profitOf(b) };
+      }));
       const cn = await supabase.rpc("cong_no_tong");
       const row = (cn.data as { tong: number; so_khach: number }[] | null)?.[0];
       setNo(row ? { tong: Number(row.tong), khach: Number(row.so_khach) } : null);
@@ -147,7 +152,8 @@ export default function Dashboard() {
 
 /** Biểu đồ cột SVG nhẹ: doanh thu (xanh điện) và lợi nhuận (navy). */
 function BarChart({ data }: { data: Month[] }) {
-  const W = 360, H = 190, pad = { l: 8, r: 8, t: 14, b: 26 };
+  const [sel, setSel] = useState<number | null>(null);
+  const W = 360, H = 200, pad = { l: 4, r: 4, t: 18, b: 40 };
   const max = Math.max(1, ...data.flatMap((d) => [d.rev, d.profit]));
   const min = Math.min(0, ...data.map((d) => d.profit));
   const span = max - min || 1;
@@ -155,8 +161,8 @@ function BarChart({ data }: { data: Month[] }) {
   const y = (v: number) => pad.t + ph * (1 - (v - min) / span);
   const zero = y(0);
   const slot = (W - pad.l - pad.r) / Math.max(data.length, 1);
-  const bw = Math.min(18, slot / 2 - 3);
-  const short = (v: number) => (Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(1).replace(/\.0$/, "") + "tr" : Math.abs(v) >= 1e3 ? Math.round(v / 1e3) + "k" : String(v));
+  const bw = Math.min(26, slot / 2 - 2);
+  const short = (v: number) => (Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(1).replace(/\.0$/, "").replace(".", ",") + "tr" : Math.abs(v) >= 1e3 ? Math.round(v / 1e3) + "k" : String(v));
   if (data.length === 0) return <p className="text-sm text-slate-500 py-6 text-center">Đang tải biểu đồ...</p>;
   return (
     <div>
@@ -165,19 +171,48 @@ function BarChart({ data }: { data: Month[] }) {
         {data.map((d, n) => {
           const cx = pad.l + slot * n + slot / 2;
           const bar = (v: number, x: number, fill: string) => <rect x={x} y={Math.min(y(v), zero)} width={bw} height={Math.max(Math.abs(y(v) - zero), v ? 1 : 0)} rx={3} fill={fill} />;
+          const lab = (v: number, x: number, color: string) => (
+            <text x={x} y={v < 0 ? y(v) + 10 : y(v) - 3} textAnchor="middle" fontSize="9" fontWeight="600" fill={color}>{short(v)}</text>
+          );
           return (
-            <g key={d.label}>
+            <g key={d.label} onClick={() => setSel(n)} onMouseEnter={() => setSel(n)} style={{ cursor: "pointer" }}>
+              <title>{`${d.label}: doanh thu ${money(d.rev)}, lợi nhuận ${money(d.profit)}`}</title>
+              <rect x={pad.l + slot * n} y={0} width={slot} height={H} fill={sel === n ? "#eef4fb" : "transparent"} />
               {bar(d.rev, cx - bw - 1, "#1597f5")}
               {bar(d.profit, cx + 1, d.profit < 0 ? "#dc2626" : "#0f2747")}
               <text x={cx} y={H - 8} textAnchor="middle" fontSize="11" fill="#55657d">{d.label}</text>
-              {d.rev > 0 && <text x={cx - bw / 2 - 1} y={y(d.rev) - 3} textAnchor="middle" fontSize="8" fill="#0866b8">{short(d.rev)}</text>}
+              {lab(d.rev, cx - bw / 2 - 1, "#0866b8")}
+              {lab(d.profit, cx + bw / 2 + 1, d.profit < 0 ? "#dc2626" : "#0f2747")}
             </g>
           );
         })}
       </svg>
+      <p className="text-sm text-center text-slate-600 min-h-[1.5rem]">
+        {sel === null ? "Bấm vào một tháng để xem số đầy đủ." : (
+          <>{data[sel].label}: doanh thu <b>{money(data[sel].rev)}</b> · lợi nhuận <b className={data[sel].profit < 0 ? "text-red-700" : ""}>{money(data[sel].profit)}</b></>
+        )}
+      </p>
       <div className="flex gap-4 text-xs text-slate-600 justify-center">
         <span className="flex items-center gap-1"><i className="w-3 h-3 rounded-sm inline-block" style={{ background: "#1597f5" }} />Doanh thu</span>
         <span className="flex items-center gap-1"><i className="w-3 h-3 rounded-sm inline-block" style={{ background: "#0f2747" }} />Lợi nhuận</span>
+        <span className="flex items-center gap-1"><i className="w-3 h-3 rounded-sm inline-block" style={{ background: "#dc2626" }} />Lỗ</span>
+      </div>
+      <div className="overflow-x-auto mt-3 -mx-1">
+        <table className="tbl min-w-[560px]">
+          <thead><tr><th>Tháng</th><th className="!text-right">Doanh thu</th><th className="!text-right">Giá vốn phụ tùng</th><th className="!text-right">Chi phí khác</th><th className="!text-right">Lợi nhuận</th><th className="!text-right">Tỷ lệ LN</th></tr></thead>
+          <tbody>
+            {data.map((d) => (
+              <tr key={d.label} className="text-right">
+                <td className="!text-left">{d.label}</td>
+                <td>{money(d.rev)}</td>
+                <td>{money(d.parts)}</td>
+                <td>{money(d.other)}</td>
+                <td className={`font-semibold ${d.profit < 0 ? "text-red-700" : "text-green-700"}`}>{money(d.profit)}</td>
+                <td className={d.profit < 0 ? "text-red-700" : ""}>{d.rev > 0 ? (d.profit / d.rev * 100).toFixed(1).replace(".", ",") + "%" : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
