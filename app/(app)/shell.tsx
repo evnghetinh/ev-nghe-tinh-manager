@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { RoleContext, roleLabel, type Role } from "@/lib/role";
 import { Icon, Logo, LoadingBlock } from "@/components/ui";
+import { TimKiem } from "@/components/tim-kiem";
 
 const menu = [
   { href: "/", label: "Tổng quan", icon: "home", ownerOnly: true },
@@ -28,7 +29,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [roleError, setRoleError] = useState("");
   const [email, setEmail] = useState("");
   const [more, setMore] = useState(false);
-  const [search, setSearch] = useState("");
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -68,10 +68,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const left = main.slice(0, 2), right = main.slice(2);
   const name = email.split("@")[0] || "Người dùng";
 
-  function onSearch(e: React.FormEvent) {
-    e.preventDefault();
-    router.push(`/tiep-nhan?tim=${encodeURIComponent(search.trim())}`);
-  }
   const NavItem = ({ m }: { m: (typeof menu)[number] }) => (
     <Link href={m.href} className={`flex-1 flex flex-col items-center justify-center gap-0.5 min-h-14 text-xs font-medium ${active(m.href) ? "text-brand-600" : "text-slate-600"}`}>
       <Icon name={m.icon} className="w-6 h-6" />{m.label}
@@ -99,11 +95,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex-1 min-w-0 flex flex-col">
         <header className="print:hidden sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200 px-3 md:px-6 min-h-16 flex items-center gap-3">
           <div className="md:hidden"><Logo size={36} /></div>
-          <form onSubmit={onSearch} className="flex-1 max-w-xl relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><Icon name="search" className="w-5 h-5" /></span>
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Tìm phiếu theo biển số, tên khách, SĐT..." aria-label="Tìm kiếm"
-              className="w-full !pl-10 !bg-slate-100 !border-transparent" />
-          </form>
+          <TimKiem />
           <div className="flex items-center gap-2 shrink-0">
             <div className="text-right leading-tight hidden sm:block">
               <div className="text-sm font-semibold text-navy-900">{name}</div>

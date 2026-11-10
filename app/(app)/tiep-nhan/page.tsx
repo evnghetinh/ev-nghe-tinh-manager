@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { EmptyState, Icon, LoadingBlock, PageTitle, StatusBadge, Toast } from "@/components/ui";
@@ -39,7 +39,11 @@ export default function OrdersPage() {
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
   const isOwner = useRole() === "chu";
-  const tim = useSearchParams().get("tim") ?? "";
+  const sp = useSearchParams();
+  const tim = sp.get("tim") ?? "";
+  const khachId = sp.get("khach");
+  const moiTim = sp.get("moi");
+  const daLamParam = useRef(false);
 
   const load = useCallback(async () => {
     const o = await supabase.from("repair_orders").select("*, vehicles(plate, model, hang_xe, dong_xe), customers(name, phone)").order("created_at", { ascending: false });
@@ -54,6 +58,26 @@ export default function OrdersPage() {
   }, []);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
+
+  // Mở từ hồ sơ khách (?khach=) hoặc từ ô tìm kiếm không thấy kết quả (?moi=)
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (!loaded || daLamParam.current) return;
+    if (khachId) {
+      daLamParam.current = true;
+      const cs = vehs.filter((v) => v.customer_id === khachId);
+      if (cs.length === 1) pickVeh(cs[0]);
+      else { setQ(custs.find((c) => c.id === khachId)?.name ?? ""); setOpen(true); }
+    } else if (moiTim !== null) {
+      daLamParam.current = true;
+      const t = moiTim.trim();
+      setIsNew(true);
+      if (/^[\d\s.+-]+$/.test(t) && t.replace(/\D/g, "").length >= 6) setNv((x) => ({ ...x, phone: t }));
+      else if (/\d/.test(t) && /[a-zA-Z]/.test(t)) setNv((x) => ({ ...x, plate: t.toUpperCase() }));
+      else if (t) setNv((x) => ({ ...x, name: t }));
+    }
+  }, [loaded, khachId, moiTim, vehs, custs]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   async function save(e: React.FormEvent) {
     e.preventDefault();

@@ -1,14 +1,17 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { EmptyState, Icon, LoadingBlock, PageTitle, Toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { ChonHangDong, useGoiYXe } from "@/components/xe-chon";
-import { namMauXe, tenXe } from "@/lib/format";
-import { squash } from "@/lib/tim";
+import { money, namMauXe, tenXe } from "@/lib/format";
 
-type Vehicle = { id: string; customer_id: string; plate: string; vin: string | null; vehicle_type: string; model: string | null; hang_xe: string | null; dong_xe: string | null; nam_san_xuat: number | null; mau_xe: string | null; customers: { name: string; phone: string | null } | null };
+type Vehicle = { id: string; customer_id: string; plate: string; vin: string | null; vehicle_type: string; model: string | null; hang_xe: string | null; dong_xe: string | null; nam_san_xuat: number | null; mau_xe: string | null; customers: { name: string; phone: string | null } | null; no: number };
+type Flat = Omit<Vehicle, "customers" | "no"> & { ten_khach: string; sdt_khach: string | null; no_khach: number };
 type Cust = { id: string; name: string; phone: string | null };
 const TYPES = ["Xe máy điện", "Xe đạp điện", "Ô tô điện", "Xe ba bánh điện", "Khác"];
+const TRANG = 20;
+const SAP_XEP = [{ v: "moi", t: "Mới nhất" }, { v: "ten", t: "Tên chủ xe A-Z" }, { v: "no", t: "Nợ nhiều nhất" }];
 const empty = { customer_id: "", plate: "", vin: "", vehicle_type: TYPES[0], model: "", hang_xe: "", dong_xe: "", nam: "", mau_xe: "" };
 
 export default function VehiclesPage() {
@@ -17,19 +20,39 @@ export default function VehiclesPage() {
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const [dq, setDq] = useState("");
+  const [sort, setSort] = useState("moi");
+  const [hasMore, setHasMore] = useState(false);
+  const [dangTai, setDangTai] = useState(false);
+  const [lam, setLam] = useState(0);
+  const lan = useRef(0);
   const [goiY, loadGoiY] = useGoiYXe();
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
 
-  const load = useCallback(async () => {
-    const v = await supabase.from("vehicles").select("*, customers(name, phone)").order("created_at", { ascending: false });
-    const c = await supabase.from("customers").select("id, name, phone").order("name");
-    if (v.error) setError(v.error.message); else setList(v.data as unknown as Vehicle[]);
-    if (c.data) setCusts(c.data);
+  // Chờ 250ms sau khi ngừng gõ rồi mới tìm
+  useEffect(() => {
+    const t = setTimeout(() => setDq(q), 250);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const tai = useCallback(async (batDau: number) => {
+    const my = ++lan.current;
+    setDangTai(true);
+    const v = await supabase.rpc("xe_danh_sach", { p_q: dq, p_sap_xep: sort, p_so: TRANG + 1, p_bat_dau: batDau });
+    if (my !== lan.current) return;
+    setDangTai(false);
     setLoaded(true);
-  }, []);
+    if (v.error) return setError(v.error.message + " (đã chạy giai-doan-27.sql chưa?)");
+    const rows = ((v.data ?? []) as Flat[]).map((x) => ({ ...x, customers: { name: x.ten_khach, phone: x.sdt_khach }, no: Number(x.no_khach) })) as Vehicle[];
+    setHasMore(rows.length > TRANG);
+    setList((cu) => (batDau === 0 ? rows.slice(0, TRANG) : [...cu, ...rows.slice(0, TRANG)]));
+  }, [dq, sort]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { tai(0); }, [tai, lam]);
+  useEffect(() => {
+    supabase.from("customers").select("id, name, phone").order("name").then(({ data }) => { if (data) setCusts(data); });
+  }, [lam]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -42,16 +65,14 @@ export default function VehiclesPage() {
       : await supabase.from("vehicles").insert(body);
     if (res.error) return setError(res.error.code === "23505" ? "Biển số này đã có trong hệ thống." : res.error.message);
     if (body.hang_xe) { await supabase.rpc("xe_them_goi_y", { p_hang: body.hang_xe, p_dong: body.dong_xe ?? "" }); loadGoiY(); }
-    setForm(empty); setEditId(null); load();
+    setForm(empty); setEditId(null); setLam((n) => n + 1);
   }
   async function remove(v: Vehicle) {
     if (!confirm(`Xóa xe ${v.plate}? Phiếu tiếp nhận của xe này cũng bị xóa.`)) return;
     const { error } = await supabase.from("vehicles").delete().eq("id", v.id);
-    if (error) setError(error.message); else load();
+    if (error) setError(error.message); else setLam((n) => n + 1);
   }
 
-  const tokens = q.trim().split(/s+/).map(squash).filter(Boolean);
-  const shown = list.filter((v) => { const h = squash(`${v.plate} ${v.vin ?? ""} ${v.customers?.name ?? ""} ${tenXe(v)} ${v.model ?? ""}`); return tokens.every((t) => h.includes(t)); });
   const input = "w-full border px-3 py-2";
 
   return (
@@ -78,13 +99,18 @@ export default function VehiclesPage() {
         {custs.length === 0 && <p className="sm:col-span-2 text-sm text-amber-700">Cần thêm khách hàng trước khi thêm xe.</p>}
       </form>
       <Toast text={error} onClose={() => setError("")} />
-      <input placeholder="Tìm theo biển số, hãng, dòng xe (vf5), số khung, tên chủ xe..." className={input} value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="grid gap-2 sm:grid-cols-[1fr_14rem]">
+        <input type="search" placeholder="Tìm theo biển số, hãng, dòng xe (vf5), số khung, tên chủ xe..." aria-label="Tìm xe" className={input} value={q} onChange={(e) => setQ(e.target.value)} />
+        <select aria-label="Sắp xếp" className={input} value={sort} onChange={(e) => setSort(e.target.value)}>
+          {SAP_XEP.map((o) => <option key={o.v} value={o.v}>Sắp xếp: {o.t}</option>)}
+        </select>
+      </div>
       <ul className="space-y-2">
-        {shown.map((v) => (
+        {list.map((v) => (
           <li key={v.id} className="card flex justify-between gap-2">
             <div className="min-w-0">
               <div className="font-semibold text-navy-900">{v.plate} {tenXe(v) && <span>· {tenXe(v)}</span>} <span className="text-sm font-normal text-slate-500">· {v.vehicle_type}{namMauXe(v) ? ` · ${namMauXe(v)}` : ""}{v.model ? ` · ${v.model}` : ""}</span></div>
-              <div className="text-sm text-slate-500">Chủ xe: {v.customers?.name}{v.customers?.phone ? ` (${v.customers.phone})` : ""}{v.vin ? ` · Số khung: ${v.vin}` : ""}</div>
+              <div className="text-sm text-slate-500 break-words">Chủ xe: <Link href={`/khach-hang/${v.customer_id}`} className="text-brand-700 underline py-2 -my-2 inline-block">{v.customers?.name}</Link>{v.customers?.phone ? ` (${v.customers.phone})` : ""}{v.vin ? ` · Số khung: ${v.vin}` : ""}{v.no > 0 && <span className="font-semibold text-red-700"> · Nợ {money(v.no)}</span>}</div>
             </div>
             <div className="flex gap-1 text-sm shrink-0 items-start">
               <button onClick={() => { setEditId(v.id); setForm({ customer_id: v.customer_id, plate: v.plate, vin: v.vin ?? "", vehicle_type: v.vehicle_type, model: v.model ?? "", hang_xe: v.hang_xe ?? "", dong_xe: v.dong_xe ?? "", nam: v.nam_san_xuat ? String(v.nam_san_xuat) : "", mau_xe: v.mau_xe ?? "" }); window.scrollTo(0, 0); }} className="bare text-green-700 px-3 min-h-11">Sửa</button>
@@ -93,8 +119,9 @@ export default function VehiclesPage() {
           </li>
         ))}
         {!loaded && <li><LoadingBlock rows={3} /></li>}
-        {loaded && shown.length === 0 && <li><EmptyState icon={<Icon name="car" />} text={q ? "Không có xe nào khớp từ khóa." : "Chưa có xe. Nhập form phía trên để thêm xe đầu tiên."} /></li>}
+        {loaded && list.length === 0 && <li><EmptyState icon={<Icon name="car" />} text={dq ? "Không có xe nào khớp từ khóa." : "Chưa có xe. Nhập form phía trên để thêm xe đầu tiên."} /></li>}
       </ul>
+      {hasMore && <button type="button" disabled={dangTai} onClick={() => tai(list.length)} className="btn-secondary w-full">{dangTai ? "Đang tải..." : "Tải thêm"}</button>}
     </div>
   );
 }
