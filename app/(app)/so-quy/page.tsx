@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
+import Link from "next/link";
 import { EmptyState, Icon, LoadingBlock, PageTitle, Toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { money, digits } from "@/lib/format";
@@ -12,12 +13,17 @@ type Dong = {
   id: string; seq: number; created_at: string; ngay: string; loai: string; quy: Quy; so_tien: number; so_phieu: string | null; nhom_id: string | null;
   doi_tuong: string | null; doi_tuong_ten: string | null; order_id: string | null; payment_id: string | null; import_id: string | null; danh_muc: string | null;
   tinh_vao_lai_lo: boolean | null; ghi_chu: string | null; dao_cua: string | null; ly_do: string | null; created_by_name: string | null;
-  ma_phieu_sua: string | null; da_dao: boolean; so_du_sau: number | null;
+  ma_phieu_sua: string | null; da_dao: boolean; so_du_sau: number | null; chi_phi_id: string | null; da_tinh_qua_chi_phi: boolean | null;
 };
 type CaiDat = { quy: Quy; so_du_dau: number; ngay_bat_dau: string };
 type LoaiChi = { ten: string; tinh_vao_lai_lo: boolean; ghi_chu: string | null };
 type Nhap = { id: string; imported_on: string; supplier: string | null; total: number; da_huy: boolean };
 type Lech = { order_id: string; ma_phieu: string; tong_khoan_thu: number; tong_so_quy: number; chenh_lech: number };
+
+type ChuaGhi = { o_cost: string; o_order: string; o_ma_phieu: string; o_khach: string | null; o_kind: string; o_noi_dung: string; o_so_tien: number; o_ngay_tao: string };
+type TongCp = { so_chua_ghi: number; tien_chua_ghi: number; so_chua_chi: number; tien_chua_chi: number; tong_chi_phi_da_ghi: number; tong_so_quy: number };
+type LechCp = { o_cost: string; o_order: string; o_ma_phieu: string; o_noi_dung: string; o_chi_phi: number; o_so_quy: number; o_lech: number };
+const KIND_CP: Record<string, string> = { vat_tu: "Vật tư tiêu hao", thue_ngoai: "Thuê ngoài", khac: "Khác" };
 
 const LOAI: Record<string, string> = { thu: "Thu", chi: "Chi", chuyen_quy: "Chuyển quỹ", kiem_quy: "Kiểm quỹ", dao: "Đảo (hủy)" };
 const DOI_TUONG: Record<string, string> = { khach: "Khách", nha_cung_cap: "Nhà cung cấp", tho: "Thợ", khac: "Khác" };
@@ -63,6 +69,9 @@ export default function SoQuyPage() {
   const [loaiChi, setLoaiChi] = useState<LoaiChi[]>([]);
   const [nhaps, setNhaps] = useState<Nhap[]>([]);
   const [lech, setLech] = useState<Lech[] | null>(null);
+  const [tongCp, setTongCp] = useState<TongCp | null>(null);
+  const [chuaGhi, setChuaGhi] = useState<ChuaGhi[] | null>(null);
+  const [lechCp, setLechCp] = useState<LechCp[] | null>(null);
   const [f, setF] = useState({ quy: "Tiền mặt" as string, den: "Tài khoản ngân hàng" as string, tien: "", doiTuong: "khach", ten: "", phieu: "", danhMuc: "", ghiChu: "", loaiChi: "Chi phí vận hành", nhap: "", lyDo: "", ngay: today() });
 
   const chuaCai = QUY.filter((q) => !cai.some((c) => c.quy === q));
@@ -81,6 +90,8 @@ export default function SoQuyPage() {
       if (!r.error) d[x.quy] = Number(r.data);
     }
     setDu(d);
+    const t = await supabase.rpc("chi_phi_quy_tong");
+    if (!t.error && t.data) setTongCp((Array.isArray(t.data) ? t.data[0] : t.data) as TongCp);
     setCapNhat(new Date().toLocaleString("vi-VN"));
   }, []);
 
@@ -159,6 +170,24 @@ export default function SoQuyPage() {
     setLech(r.data as Lech[]);
   }
 
+  async function xemChuaGhi() {
+    if (chuaGhi) return setChuaGhi(null);
+    setError(""); setBusy(true);
+    const r = await supabase.rpc("chi_phi_chua_ghi_quy");
+    setBusy(false);
+    if (r.error) return setError(r.error.message);
+    setChuaGhi((r.data as ChuaGhi[]).map((x) => ({ ...x, o_so_tien: Number(x.o_so_tien) })));
+  }
+
+  async function doiChieuCp() {
+    setError(""); setBusy(true);
+    const r = await supabase.rpc("chi_phi_quy_doi_chieu");
+    setBusy(false);
+    if (r.error) return setError(r.error.message + " (đã chạy giai-doan-26.sql chưa?)");
+    setLechCp((r.data as LechCp[]).map((x) => ({ ...x, o_chi_phi: Number(x.o_chi_phi), o_so_quy: Number(x.o_so_quy), o_lech: Number(x.o_lech) })));
+    loadTop();
+  }
+
   async function exportXlsx() {
     setBusy(true); setError("");
     const all: Dong[] = [];
@@ -215,6 +244,27 @@ export default function SoQuyPage() {
           <div className="font-semibold">Nhập số dư đầu kỳ (chỉ một lần cho mỗi quỹ, không sửa lại được)</div>
           <p className="text-sm text-slate-600">Chưa thiết lập: {chuaCai.join(", ")}. Chưa thiết lập thì chưa tạo được phiếu thu/chi, chuyển quỹ, kiểm quỹ. Số dư chỉ tính các dòng từ ngày bắt đầu trở đi.</p>
           <button className="btn-primary min-h-11" onClick={() => { setF({ ...f, quy: chuaCai[0] }); mo("dau"); }}>Nhập số dư đầu kỳ</button>
+        </div>
+      )}
+
+      {tongCp && tongCp.so_chua_ghi > 0 && (
+        <div className="card border border-amber-300 bg-amber-50 space-y-2">
+          <div className="text-sm">Có <b>{tongCp.so_chua_ghi}</b> khoản chi phí phiếu chưa ghi vào quỹ, tổng <b>{money(Number(tongCp.tien_chua_ghi))}</b>.</div>
+          <button className="btn-secondary min-h-11" disabled={busy} onClick={xemChuaGhi}>{chuaGhi ? "Ẩn danh sách" : "Xem danh sách"}</button>
+          {chuaGhi && (
+            <ul className="space-y-2">
+              {chuaGhi.map((x) => (
+                <li key={x.o_cost} className="bg-white rounded-lg border p-3 text-sm flex justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-medium break-words">{x.o_noi_dung} <span className="text-xs text-slate-500">({KIND_CP[x.o_kind] ?? x.o_kind})</span></div>
+                    <div className="text-slate-600 break-words">{x.o_khach ?? "Không rõ khách"} · {fmtTime(x.o_ngay_tao)}</div>
+                    <Link href={`/tiep-nhan/${x.o_order}`} className="inline-flex items-center min-h-11 text-brand-700 underline">Mở phiếu {x.o_ma_phieu} để ghi vào quỹ</Link>
+                  </div>
+                  <div className="font-bold shrink-0">{money(x.o_so_tien)}</div>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
@@ -303,6 +353,7 @@ export default function SoQuyPage() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button className="btn-secondary min-h-11" disabled={busy} onClick={doiChieu}>Đối chiếu khoản thu với phiếu</button>
+          <button className="btn-secondary min-h-11" disabled={busy} onClick={doiChieuCp}>Đối chiếu chi phí phiếu với quỹ</button>
           {(from || to || quy || loai) && <button className="bare text-sm text-brand-700 min-h-11" onClick={() => { setFrom(""); setTo(""); setQuy(""); setLoai(""); }}>Xóa lọc</button>}
         </div>
         {lech && (
@@ -311,6 +362,16 @@ export default function SoQuyPage() {
               <>
                 <div className="font-semibold mb-1">{lech.length} phiếu lệch:</div>
                 <ul className="space-y-1">{lech.map((l) => <li key={l.order_id}>{l.ma_phieu}: khoản thu {money(Number(l.tong_khoan_thu))} · sổ quỹ {money(Number(l.tong_so_quy))} · lệch {signed(Number(l.chenh_lech))}</li>)}</ul>
+              </>
+            )}
+          </div>
+        )}
+        {lechCp && (
+          <div className={`rounded-lg p-3 text-sm ${lechCp.length ? "bg-red-50 text-red-800" : "bg-emerald-50 text-emerald-800"}`}>
+            {lechCp.length === 0 ? `Khớp: tổng chi phí phiếu đã ghi quỹ${tongCp ? ` (${money(Number(tongCp.tong_chi_phi_da_ghi))})` : ""} bằng tổng các dòng quỹ liên kết${tongCp ? ` (${money(Number(tongCp.tong_so_quy))})` : ""}.` : (
+              <>
+                <div className="font-semibold mb-1">{lechCp.length} khoản chi phí lệch:</div>
+                <ul className="space-y-1">{lechCp.map((l) => <li key={l.o_cost}><Link href={`/tiep-nhan/${l.o_order}`} className="underline">{l.o_ma_phieu}</Link>: {l.o_noi_dung} · chi phí {money(l.o_chi_phi)} · sổ quỹ {money(l.o_so_quy)} · lệch {signed(l.o_lech)}</li>)}</ul>
               </>
             )}
           </div>
@@ -327,12 +388,16 @@ export default function SoQuyPage() {
                   <div className="font-medium">
                     <span className={MAU[d.loai]}>{LOAI[d.loai] ?? d.loai}</span>
                     {d.so_phieu && <span className="ml-2 badge bg-slate-100 text-slate-700">{d.so_phieu}</span>}
-                    {d.ma_phieu_sua && <span className="ml-2 text-sm text-brand-700">{d.ma_phieu_sua}</span>}
+                    {d.ma_phieu_sua && (d.order_id
+                      ? <Link href={`/tiep-nhan/${d.order_id}`} className="ml-2 text-sm text-brand-700 underline inline-flex items-center min-h-11">{d.ma_phieu_sua}</Link>
+                      : <span className="ml-2 text-sm text-brand-700">{d.ma_phieu_sua}</span>)}
                     {d.da_dao && <span className="ml-2 badge bg-red-100 text-red-700">Đã hủy</span>}
                   </div>
                   <div className="text-sm text-slate-600 break-words">
                     {[d.danh_muc, d.doi_tuong && DOI_TUONG[d.doi_tuong], d.doi_tuong_ten].filter(Boolean).join(" · ")}
-                    {d.tinh_vao_lai_lo !== null && <span className="ml-1 text-xs">({d.tinh_vao_lai_lo ? "tính vào lãi lỗ" : "không tính lãi lỗ"})</span>}
+                    {d.da_tinh_qua_chi_phi
+                      ? <span className="ml-1 text-xs">(đã tính vào lãi lỗ qua chi phí phiếu)</span>
+                      : d.tinh_vao_lai_lo !== null && <span className="ml-1 text-xs">({d.tinh_vao_lai_lo ? "tính vào lãi lỗ" : "không tính lãi lỗ"})</span>}
                   </div>
                   {d.ghi_chu && <div className="text-sm text-slate-500 break-words">{d.ghi_chu}</div>}
                   {d.ly_do && <div className="text-sm text-slate-500 break-words">Lý do: {d.ly_do}</div>}
@@ -341,7 +406,7 @@ export default function SoQuyPage() {
                 <div className="text-right shrink-0">
                   <div className={`font-bold ${d.so_tien > 0 ? "text-emerald-700" : "text-red-700"}`}>{signed(Number(d.so_tien))}</div>
                   <div className="text-xs text-slate-500">Dư: {d.so_du_sau === null ? "—" : money(Number(d.so_du_sau))}</div>
-                  {!d.da_dao && d.loai !== "dao" && !d.payment_id && <button disabled={busy} onClick={() => huy(d)} className="bare text-red-600 text-sm min-h-11">Hủy</button>}
+                  {!d.da_dao && d.loai !== "dao" && !d.payment_id && !d.chi_phi_id && <button disabled={busy} onClick={() => huy(d)} className="bare text-red-600 text-sm min-h-11">Hủy</button>}
                 </div>
               </div>
             </li>

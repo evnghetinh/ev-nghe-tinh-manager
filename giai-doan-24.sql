@@ -1,3 +1,4 @@
+
 -- GIAI ĐOẠN 24: Giá trị tồn kho (chỉ Chủ xưởng thấy số tiền)
 -- Cách dùng: Supabase -> SQL Editor -> New query -> dán toàn bộ file này -> Run. Chạy lại nhiều lần vẫn an toàn.
 -- Cần đã chạy giai-doan-4, 13, 16.
