@@ -1,28 +1,22 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { EmptyState, Icon, LoadingBlock, PageTitle, StatusBadge, Toast } from "@/components/ui";
+import { Icon, PageTitle, Toast } from "@/components/ui";
+import DanhSach, { type Row } from "./danh-sach";
 import { supabase } from "@/lib/supabase";
-import { useRole } from "@/lib/role";
 import { ChonHangDong, useGoiYXe } from "@/components/xe-chon";
 import { namMauXe, tenXe } from "@/lib/format";
 
-type Order = { id: string; code: number; customer_id: string; received_at: string; odometer: number | null; issue: string; status: string; note: string | null; stock_deducted: boolean; da_huy: boolean; vehicles: { plate: string; model: string | null; hang_xe: string | null; dong_xe: string | null } | null; customers: { name: string; phone: string | null } | null };
 type Veh = { id: string; customer_id: string; plate: string; vehicle_type: string | null; hang_xe: string | null; dong_xe: string | null; nam_san_xuat: number | null; mau_xe: string | null; customers: { name: string; phone: string | null } | null };
 type Cust = { id: string; name: string; phone: string | null };
 const TYPES = ["Xe máy điện", "Xe đạp điện", "Ô tô điện", "Xe ba bánh điện", "Khác"];
 const emptyNew = { plate: "", type: TYPES[0], vin: "", hang: "", dong: "", nam: "", mau: "", name: "", phone: "", address: "" };
 // bỏ dấu tiếng Việt, hoa/thường và mọi ký tự không phải chữ/số (dấu cách, chấm, gạch...)
 const squash = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/gi, "d").toLowerCase().replace(/[^a-z0-9]/g, "");
-const STATUS = ["Chờ xử lý", "Đang sửa", "Hoàn thành", "Đã giao xe", "Đã hủy"];
-// "Hoàn thành" chỉ đặt qua nút "Hoàn thành và thu tiền", "Đã hủy" chỉ đặt qua "Hủy phiếu"
-const STATUS_CHON = ["Chờ xử lý", "Đang sửa", "Đã giao xe"];
 const empty = { vehicle_id: "", odometer: "", issue: "", note: "", soc: "", soh: "", pin: "" };
 type Ktv = { id: string; ten: string };
 
 export default function OrdersPage() {
-  const [list, setList] = useState<Order[]>([]);
   const [vehs, setVehs] = useState<Veh[]>([]);
   const [custs, setCusts] = useState<Cust[]>([]);
   const [q, setQ] = useState("");
@@ -32,13 +26,12 @@ export default function OrdersPage() {
   const [busy, setBusy] = useState(false);
   const [goiY, loadGoiY] = useGoiYXe();
   const [form, setForm] = useState(empty);
-  const [filter, setFilter] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const [ktvs, setKtvs] = useState<Ktv[]>([]);
   const [chosen, setChosen] = useState<string[]>([]);
   const [dtcs, setDtcs] = useState<{ ma: string; ghi_chu: string }[]>([]);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
-  const isOwner = useRole() === "chu";
   const sp = useSearchParams();
   const tim = sp.get("tim") ?? "";
   const khachId = sp.get("khach");
@@ -46,11 +39,10 @@ export default function OrdersPage() {
   const daLamParam = useRef(false);
 
   const load = useCallback(async () => {
-    const o = await supabase.from("repair_orders").select("*, vehicles(plate, model, hang_xe, dong_xe), customers(name, phone)").order("created_at", { ascending: false });
     const v = await supabase.from("vehicles").select("id, customer_id, plate, vehicle_type, hang_xe, dong_xe, nam_san_xuat, mau_xe, customers(name, phone)").order("plate");
     const c = await supabase.from("customers").select("id, name, phone");
     if (c.data) setCusts(c.data as Cust[]);
-    if (o.error) setError(o.error.message); else setList(o.data as unknown as Order[]);
+    setReloadKey((k) => k + 1);
     if (v.data) setVehs(v.data as unknown as Veh[]);
     setLoaded(true);
     const k = await supabase.from("ev_ky_thuat_vien").select("id, ten").eq("dang_lam", true).order("ten");
@@ -142,13 +134,13 @@ export default function OrdersPage() {
     if (error) setError(error.message); else load();
   }
   // Chỉ xóa được phiếu NHÁP (chưa có dòng, chưa thu, chưa trừ kho); việc xóa được ghi nhật ký
-  async function remove(o: Order) {
+  async function remove(o: Row) {
     if (!confirm(`Xóa phiếu nháp PT${String(o.code).padStart(4, "0")}? Chỉ xóa được khi phiếu chưa có dòng nào, chưa thu tiền, chưa trừ kho. Việc xóa được ghi nhật ký.`)) return;
     const { error } = await supabase.rpc("xoa_phieu_nhap", { p_order: o.id });
     if (error) setError(error.message); else load();
   }
   // Phiếu đã có dòng / đã thu / đã trừ kho: chỉ Chủ hủy, lý do bắt buộc
-  async function cancelOrder(o: Order) {
+  async function cancelOrder(o: Row) {
     const ly = window.prompt(`Hủy phiếu PT${String(o.code).padStart(4, "0")}. Kho được hoàn lại, khoản thu được đảo, phiếu bị loại khỏi doanh thu và lợi nhuận.\n\nLý do hủy (bắt buộc):`);
     if (ly === null) return;
     if (!ly.trim()) return setError("Bắt buộc nhập lý do hủy phiếu.");
@@ -161,8 +153,6 @@ export default function OrdersPage() {
     const h = squash(`${v.plate} ${v.vehicle_type ?? ""} ${tenXe(v)} ${v.customers?.name ?? ""} ${v.customers?.phone ?? ""}`);
     return tokens.every((t) => h.includes(t));
   }).slice(0, 30);
-  const timTokens = tim.trim().split(/s+/).map(squash).filter(Boolean);
-  const shown = list.filter((o) => (!filter || o.status === filter) && timTokens.every((t) => squash(`PT${String(o.code).padStart(4, "0")} ${o.vehicles?.plate ?? ""} ${tenXe(o.vehicles)} ${o.vehicles?.model ?? ""} ${o.customers?.name ?? ""} ${o.customers?.phone ?? ""} ${o.issue}`).includes(t)));
   const input = "w-full border px-3 py-2";
 
   return (
@@ -241,44 +231,7 @@ export default function OrdersPage() {
         <div className="sm:col-span-2"><button disabled={busy} className="btn-primary disabled:opacity-60">{busy ? "Đang tạo..." : "Tạo phiếu tiếp nhận"}</button></div>
       </form>
       <Toast text={error} onClose={() => setError("")} />
-      <select className={input} value={filter} onChange={(e) => setFilter(e.target.value)}>
-        <option value="">Tất cả trạng thái</option>
-        {STATUS.map((s) => <option key={s}>{s}</option>)}
-      </select>
-      <ul className="space-y-2">
-        {shown.map((o) => (
-          <li key={o.id} className="card space-y-2">
-            <Link href={`/tiep-nhan/${o.id}`} className="block space-y-2">
-              <div className="flex justify-between gap-2">
-                <div className={`font-semibold text-navy-900 ${o.da_huy ? "line-through text-slate-400" : ""}`}>PT{String(o.code).padStart(4, "0")} · {o.vehicles?.plate}{tenXe(o.vehicles) ? ` · ${tenXe(o.vehicles)}` : ""}</div>
-                <StatusBadge status={o.status} />
-              </div>
-              <div className={`text-sm ${o.da_huy ? "line-through text-slate-400" : ""}`}>{o.issue}</div>
-              <div className="text-sm text-slate-500">
-                {o.customers?.name}{o.customers?.phone ? ` (${o.customers.phone})` : ""} · {new Date(o.received_at).toLocaleString("vi-VN")}
-                {o.odometer != null ? ` · ${o.odometer} km` : ""}{o.note ? ` · ${o.note}` : ""}
-              </div>
-            </Link>
-            {o.da_huy && <p className="text-xs text-red-700">Phiếu đã hủy · không tính vào doanh thu, lợi nhuận.</p>}
-            <div className="flex gap-2 items-center flex-wrap">
-              {!o.da_huy && (o.stock_deducted
-                ? (isOwner && (
-                  <select className="border px-2 text-sm" value={o.status} onChange={(e) => setStatus(o.id, e.target.value)}>
-                    {["Hoàn thành", "Đã giao xe"].map((s) => <option key={s}>{s}</option>)}
-                  </select>))
-                : (
-                  <select className="border px-2 text-sm" value={o.status} onChange={(e) => setStatus(o.id, e.target.value)}>
-                    {(STATUS_CHON.includes(o.status) ? STATUS_CHON : [o.status, ...STATUS_CHON]).map((s) => <option key={s}>{s}</option>)}
-                  </select>))}
-              <Link href={`/tiep-nhan/${o.id}`} className="btn btn-secondary text-sm !px-3">Báo giá</Link>
-              {!o.da_huy && !o.stock_deducted && <button onClick={() => remove(o)} className="bare text-red-600 text-sm ml-auto px-3 min-h-11">Xóa phiếu nháp</button>}
-              {!o.da_huy && isOwner && <button onClick={() => cancelOrder(o)} className={`bare text-red-700 text-sm px-3 min-h-11 ${o.stock_deducted ? "ml-auto" : ""}`}>Hủy phiếu</button>}
-            </div>
-          </li>
-        ))}
-        {!loaded && <li><LoadingBlock rows={3} /></li>}
-        {loaded && shown.length === 0 && <li><EmptyState icon={<Icon name="clipboard" />} text={tim || filter ? "Không có phiếu nào khớp. Thử bỏ bộ lọc hoặc đổi từ khóa tìm." : "Chưa có phiếu nào. Điền form phía trên để tiếp nhận xe đầu tiên."} /></li>}
-      </ul>
+      <DanhSach initialTim={tim} reloadKey={reloadKey} onStatus={setStatus} onRemove={remove} onCancel={cancelOrder} />
     </div>
   );
 }
