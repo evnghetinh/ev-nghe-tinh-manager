@@ -1,3 +1,5 @@
+
+
 -- GIAI ĐOẠN 28: Hủy phiếu đảo ĐẦY ĐỦ (kho + khoản thu + chi phí + sổ quỹ), công cụ sửa phiếu đã hủy còn sót, đối chiếu
 -- Cách dùng: Supabase -> SQL Editor -> New query -> dán toàn bộ file này -> Run
 -- Chạy lại nhiều lần vẫn an toàn (không mất dữ liệu, không ghi trùng). Cần đã chạy giai-doan-20, 21, 22 và 26.
