@@ -10,7 +10,8 @@ type Setup = { id: string; spent_on: string; category: string; amount: number; p
 type Contrib = { id: string; contributor: string; amount: number; contributed_on: string; note: string | null };
 type Op = { id: string; month: string; kind: string; amount: number; note: string | null };
 type Prior = { id: string; month: string; amount: number; note: string | null };
-type Paid = { paid_at: string; repair_items: { kind: string; qty: number; unit_price: number; repair_item_costs: { cost_price: number } | { cost_price: number }[] | null }[]; repair_costs: { amount: number }[] };
+// Mỗi dòng = một tháng: doanh thu SAU giảm giá, TRƯỚC thuế (hàm bao_cao_phieu, giai đoạn 31)
+type Paid = { ky: string; doanh_thu: number; gia_von: number; chi_tat_ca: number };
 
 const CATS = ["Thiết bị", "Sửa mặt bằng", "Đặt cọc", "Hàng tồn ban đầu", "Biển hiệu", "Khác"];
 const KINDS: Record<string, string> = { thue_mat_bang: "Thuê mặt bằng", dien_nuoc: "Điện nước", luong: "Lương", internet: "Internet", khac: "Khoản khác" };
@@ -22,7 +23,6 @@ const fmtDate = (d: string) => d.split("-").reverse().join("/");
 const num = (s: string) => Number(digits(s) || 0);
 const inp = "border px-3 py-2 w-full bg-white";
 const btn = "px-4 font-medium";
-const costOf = (c: Paid["repair_items"][number]["repair_item_costs"]) => (Array.isArray(c) ? c[0]?.cost_price : c?.cost_price) ?? 0;
 
 type Huy = { id: string; da_huy: boolean; huy_ly_do: string | null; huy_boi_ten: string | null; huy_luc: string | null; created_by_name: string | null; created_at: string };
 
@@ -297,15 +297,10 @@ function ReportSection({ setup, contribs, ops, priors, priorsHuy, reloadPriors, 
     if (!start) return;
     (async () => {
       setLoading(true);
-      const all: Paid[] = [];
-      for (let from = 0; ; from += 1000) {
-        const r = await supabase.from("repair_orders").select("paid_at, repair_items(kind, qty, unit_price, repair_item_costs(cost_price)), repair_costs(amount)")
-          .eq("stock_deducted", true).eq("da_huy", false).eq("repair_costs.da_huy", false).gte("paid_at", start).lte("paid_at", today()).order("paid_at").range(from, from + 999);
-        if (r.error) { setError(r.error.message); break; }
-        all.push(...((r.data ?? []) as unknown as Paid[]));
-        if ((r.data?.length ?? 0) < 1000) break;
-      }
-      setOrders(all); setLoading(false);
+      const r = await supabase.rpc("bao_cao_phieu", { p_tu: start, p_den: today(), p_nhom: "thang" });
+      if (r.error) setError(r.error.message + " (đã chạy giai-doan-31.sql chưa?)");
+      setOrders(((r.data ?? []) as Paid[]).map((x) => ({ ...x, doanh_thu: Number(x.doanh_thu), gia_von: Number(x.gia_von), chi_tat_ca: Number(x.chi_tat_ca) })));
+      setLoading(false);
     })();
   }, [start]);
 
@@ -323,11 +318,8 @@ function ReportSection({ setup, contribs, ops, priors, priorsHuy, reloadPriors, 
     if (!startM) return [];
     const orderP: Record<string, number> = {}, prior: Record<string, number> = {}, op: Record<string, number> = {};
     for (const o of orders) {
-      const rev = o.repair_items.reduce((s, i) => s + i.qty * i.unit_price, 0);
-      const parts = o.repair_items.filter((i) => i.kind === "part").reduce((s, i) => s + i.qty * costOf(i.repair_item_costs), 0);
-      const oth = (o.repair_costs ?? []).reduce((s, c) => s + c.amount, 0);
-      const m = monthOf(o.paid_at);
-      orderP[m] = (orderP[m] ?? 0) + rev - parts - oth;
+      const m = monthOf(o.ky);
+      orderP[m] = (orderP[m] ?? 0) + o.doanh_thu - o.gia_von - o.chi_tat_ca;
     }
     for (const p of priors) if (monthOf(p.month) >= startM) prior[monthOf(p.month)] = (prior[monthOf(p.month)] ?? 0) + p.amount;
     for (const c of ops) if (monthOf(c.month) >= startM) op[monthOf(c.month)] = (op[monthOf(c.month)] ?? 0) + c.amount;

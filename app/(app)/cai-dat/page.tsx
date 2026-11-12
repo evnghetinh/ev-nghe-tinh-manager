@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { EmptyState, Icon, PageTitle, Toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { useRole, roleLabel, type Role } from "@/lib/role";
+import { decimalInput, toNum } from "@/lib/format";
 
 type Tk = { tk_id: string; tk_email: string; tk_vai_tro: Role | null; tk_ten: string | null; tk_ten_tam: boolean };
 type Ktv = { id: string; ten: string; dang_lam: boolean };
@@ -24,6 +25,8 @@ export default function SettingsPage() {
   const [newHang, setNewHang] = useState("");
   const [newDong, setNewDong] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
+  const [gv, setGv] = useState<{ giam: string; vat: number[] } | null>(null);
+  const [newVat, setNewVat] = useState("");
 
   const load = useCallback(async () => {
     const [a, b, c, h, d] = await Promise.all([
@@ -38,6 +41,9 @@ export default function SettingsPage() {
     if (h.error || d.error) setError((h.error || d.error)!.message + " (đã chạy giai-doan-25.sql chưa?)");
     setHangs((h.data ?? []) as Hang[]); setDongs((d.data ?? []) as Dong[]);
     setTks(a.data as Tk[]); setKtvs(b.data as Ktv[]); setMaus(c.data as Mau[]);
+    const g = await supabase.from("phieu_cai_dat").select("giam_toi_da_nv, vat_suat_ds").maybeSingle();
+    if (g.error) setError(g.error.message + " (đã chạy giai-doan-31.sql chưa?)");
+    else if (g.data) setGv({ giam: String(Number(g.data.giam_toi_da_nv)).replace(".", ","), vat: (g.data.vat_suat_ds as (number | string)[]).map(Number).sort((x, y) => x - y) });
   }, []);
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (role === "chu") load(); }, [load, role]);
@@ -73,6 +79,44 @@ export default function SettingsPage() {
             </li>
           ))}
         </ul>
+      </section>
+
+      <section className="card space-y-3">
+        <h2 className="font-bold text-navy-900">Giảm giá và thuế VAT</h2>
+        <p className="text-sm text-slate-500">Nhân viên chỉ giảm giá được tới ngưỡng này (tính trên tổng tạm tính của phiếu); vượt ngưỡng thì hệ thống chặn, chỉ Chủ xưởng được giảm. Danh sách thuế suất là các mức được chọn trong phiếu (phải có mức 0).</p>
+        {gv ? (
+          <form className="space-y-3" onSubmit={async (e) => {
+            e.preventDefault();
+            const n = toNum(gv.giam);
+            if (!(n >= 0 && n <= 100)) return setError("Ngưỡng giảm giá phải từ 0 đến 100 phần trăm.");
+            if (await run(supabase.rpc("phieu_cai_dat_luu", { p_giam_toi_da_nv: n, p_vat_suat_ds: gv.vat }))) setError("");
+          }}>
+            <label className="block"><span className="field-label">Nhân viên được giảm tối đa (phần trăm)</span>
+              <input inputMode="decimal" className={input} value={gv.giam} onChange={(e) => setGv({ ...gv, giam: decimalInput(e.target.value, 2) })} />
+            </label>
+            <div>
+              <span className="field-label">Các mức thuế suất VAT (phần trăm)</span>
+              <div className="flex flex-wrap gap-2">
+                {gv.vat.map((v) => (
+                  <span key={v} className="badge bg-slate-100 text-slate-800 !py-0 pl-3 pr-1 items-center">
+                    {String(v).replace(".", ",")}%
+                    {v !== 0 && <button type="button" aria-label={`Xóa mức ${v}%`} onClick={() => setGv({ ...gv, vat: gv.vat.filter((x) => x !== v) })} className="bare text-red-600 min-h-11 min-w-11">✕</button>}
+                  </span>
+                ))}
+              </div>
+              <div className="grid gap-2 grid-cols-[1fr_auto] mt-2">
+                <input inputMode="decimal" placeholder="Thêm mức mới (vd 8)" aria-label="Thêm mức thuế suất" className={input} value={newVat} onChange={(e) => setNewVat(decimalInput(e.target.value, 2))} />
+                <button type="button" className="btn-secondary" onClick={() => {
+                  const v = toNum(newVat);
+                  if (!(v >= 0 && v <= 100) || newVat === "") return setError("Mức thuế suất phải từ 0 đến 100.");
+                  if (!gv.vat.includes(v)) setGv({ ...gv, vat: [...gv.vat, v].sort((x, y) => x - y) });
+                  setNewVat("");
+                }}>Thêm mức</button>
+              </div>
+            </div>
+            <button className="btn-primary">Lưu cài đặt giảm giá và VAT</button>
+          </form>
+        ) : <p className="text-sm text-slate-500">Đang tải...</p>}
       </section>
 
       <section className="card space-y-3">

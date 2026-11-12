@@ -10,15 +10,22 @@ import Photos from "./photos";
 import PartPicker from "./part-picker";
 import Costs from "./costs";
 import EvInfo from "./ev";
+import GiamVat, { toTot, vatText, giamText, type Tot, type GvCfg, type Kieu } from "./giam-vat";
 
-type Item = { id: string; kind: "part" | "labor"; name: string; qty: number; unit_price: number; don_vi: string | null };
-const lineTotal = (i: { qty: number; unit_price: number }) => Math.round(i.qty * i.unit_price);
+type Item = { id: string; kind: "part" | "labor"; name: string; qty: number; unit_price: number; don_vi: string | null; giam_kieu: Kieu; giam_gia_tri: number; thanh_tien: number; giam_tien: number; sau_giam: number };
+type GvSnap = { giam_kieu: Kieu; giam_gia_tri: number; vat_suat: number; vat_che_do: "chua" | "da"; giam_dong?: { dong: string; kieu: Kieu; gia_tri: number }[]; giam_gia: number; vat: number; tong_thanh_toan: number };
+type GvLog = { id: string; created_at: string; created_by_name: string | null; da_hoan_thanh: boolean; ly_do: string | null; tong_truoc: number; tong_sau: number; truoc: GvSnap; sau: GvSnap };
+const snapText = (x: GvSnap) => [
+  Number(x.giam_gia_tri) > 0 ? `giảm toàn phiếu ${giamText(x.giam_kieu, Number(x.giam_gia_tri))}` : "",
+  x.giam_dong?.length ? `giảm ${x.giam_dong.length} dòng (${x.giam_dong.map((d) => `${d.dong}: ${giamText(d.kieu, Number(d.gia_tri))}`).join("; ")})` : "",
+  `VAT ${Number(x.vat_suat) > 0 ? vatText(Number(x.vat_suat), x.vat_che_do) : "0%"}`,
+].filter(Boolean).join(" · ");
 type Part = { id: string; name: string; code: string | null; sale_price: number; stock: number } & DonVi;
 type Past = { id: string; code: number; received_at: string; odometer: number | null; issue: string; status: string; items: { kind: "part" | "labor"; name: string; qty: number }[] };
 type Log = { id: string; action: "them" | "xoa" | "tra"; ghi_chu: string | null; kind: "part" | "labor"; item_name: string; qty: number; unit_price: number; total_before: number; total_after: number; created_by_name: string | null; created_at: string };
 type Pay = { id: string; ref_id: string | null; loai: "thu" | "dieu_chinh" | "dao"; so_tien: number; hinh_thuc: string; ngay_thu: string; ghi_chu: string | null; da_huy: boolean; huy_ly_do: string | null; huy_boi_ten: string | null; huy_luc: string | null; created_by_name: string | null; created_at: string };
 const LOAI_THU: Record<string, string> = { thu: "Khoản thu", dieu_chinh: "Điều chỉnh", dao: "Dòng đảo do hủy phiếu" };
-type Order = { code: number; issue: string; status: string; payment_method: string | null; paid_at: string | null; stock_deducted: boolean; da_huy: boolean; huy_ly_do: string | null; huy_boi_ten: string | null; huy_luc: string | null; odometer: number | null; vehicles: { plate: string; hang_xe: string | null; dong_xe: string | null; nam_san_xuat: number | null; mau_xe: string | null } | null; customers: { name: string; phone: string | null; address: string | null } | null };
+type Order = { giam_kieu: Kieu; giam_gia_tri: number; giam_ly_do: string | null; vat_suat: number; vat_che_do: "chua" | "da"; code: number; issue: string; status: string; payment_method: string | null; paid_at: string | null; stock_deducted: boolean; da_huy: boolean; huy_ly_do: string | null; huy_boi_ten: string | null; huy_luc: string | null; odometer: number | null; vehicles: { plate: string; hang_xe: string | null; dong_xe: string | null; nam_san_xuat: number | null; mau_xe: string | null } | null; customers: { name: string; phone: string | null; address: string | null } | null };
 
 export default function QuotePage() {
   const { id } = useParams<{ id: string }>();
@@ -42,19 +49,29 @@ export default function QuotePage() {
   const [showPay, setShowPay] = useState(false);
   const [pays, setPays] = useState<Pay[]>([]);
   const [newPay, setNewPay] = useState({ amount: "", method: "Tiền mặt", date: new Date().toLocaleDateString("sv-SE"), note: "" });
+  const [tot, setTot] = useState<Tot | null>(null);
+  const [cfg, setCfg] = useState<GvCfg | null>(null);
+  const [gvLogs, setGvLogs] = useState<GvLog[]>([]);
 
   const load = useCallback(async () => {
-    const o = await supabase.from("repair_orders").select("code, issue, status, payment_method, paid_at, stock_deducted, da_huy, huy_ly_do, huy_boi_ten, huy_luc, odometer, vehicles(plate, hang_xe, dong_xe, nam_san_xuat, mau_xe), customers(name, phone, address)").eq("id", id).single();
+    const o = await supabase.from("repair_orders").select("giam_kieu, giam_gia_tri, giam_ly_do, vat_suat, vat_che_do, code, issue, status, payment_method, paid_at, stock_deducted, da_huy, huy_ly_do, huy_boi_ten, huy_luc, odometer, vehicles(plate, hang_xe, dong_xe, nam_san_xuat, mau_xe), customers(name, phone, address)").eq("id", id).single();
     const i = await supabase.rpc("dong_bao_gia", { p_order: id });
     const p = await supabase.from("parts").select(COT_PHU_TUNG).eq("is_hidden", false).order("name");
-    if (o.error) setError(o.error.message); else setOrder(o.data as unknown as Order);
-    if (i.error) setError(i.error.message); else if (i.data) setItems((i.data as Item[]).map((x) => ({ ...x, qty: Number(x.qty), unit_price: Number(x.unit_price) })));
+    if (o.error) setError(o.error.message + " (đã chạy giai-doan-31.sql chưa?)"); else { const d = o.data as unknown as Order; setOrder({ ...d, giam_gia_tri: Number(d.giam_gia_tri), vat_suat: Number(d.vat_suat) }); }
+    if (i.error) setError(i.error.message + " (đã chạy giai-doan-31.sql chưa?)"); else if (i.data) setItems((i.data as Item[]).map((x) => ({ ...x, qty: Number(x.qty), unit_price: Number(x.unit_price), giam_gia_tri: Number(x.giam_gia_tri), thanh_tien: Number(x.thanh_tien), giam_tien: Number(x.giam_tien), sau_giam: Number(x.sau_giam) })));
+    const tt = await supabase.rpc("tinh_tong_phieu", { p_order: id });
+    const trow = (tt.data as Record<string, unknown>[] | null)?.[0];
+    if (tt.error) setError(tt.error.message + " (đã chạy giai-doan-31.sql chưa?)"); else setTot(trow ? toTot(trow) : null);
+    const cd = await supabase.from("phieu_cai_dat").select("giam_toi_da_nv, vat_suat_ds").maybeSingle();
+    if (cd.data) setCfg({ giam_toi_da_nv: Number(cd.data.giam_toi_da_nv), vat_suat_ds: (cd.data.vat_suat_ds as (number | string)[]).map(Number) });
     if (p.data) setParts((p.data as Part[]).map((x) => ({ ...x, stock: Number(x.stock), he_so: Number(x.he_so) })));
     const pm = await supabase.from("order_payments").select("id, ref_id, loai, so_tien, hinh_thuc, ngay_thu, ghi_chu, da_huy, huy_ly_do, huy_boi_ten, huy_luc, created_by_name, created_at").eq("order_id", id).order("seq");
     if (pm.data) setPays((pm.data as Pay[]).map((x) => ({ ...x, so_tien: Number(x.so_tien) })));
     if (role === "chu") {
       const l = await supabase.from("repair_edit_logs").select("id, action, ghi_chu, kind, item_name, qty, unit_price, total_before, total_after, created_by_name, created_at").eq("order_id", id).order("created_at", { ascending: false });
       if (l.data) setLogs(l.data as Log[]);
+      const gl = await supabase.from("phieu_giam_vat_nhat_ky").select("id, created_at, created_by_name, da_hoan_thanh, ly_do, tong_truoc, tong_sau, truoc, sau").eq("order_id", id).order("created_at", { ascending: false });
+      if (gl.data) setGvLogs((gl.data as GvLog[]).map((x) => ({ ...x, tong_truoc: Number(x.tong_truoc), tong_sau: Number(x.tong_sau) })));
       const c = await supabase.from("repair_items").select("kind, qty, repair_item_costs(cost_price)").eq("order_id", id);
       if (c.data) {
         type Row = { kind: string; qty: number; repair_item_costs: { cost_price: number } | { cost_price: number }[] | null };
@@ -130,7 +147,7 @@ export default function QuotePage() {
     if (!n || n <= 0) return setError("Số lượng trả phải lớn hơn 0.");
     if (n > it.qty) return setError(`Số lượng trả không được quá ${qtyText(it.qty)}.`);
     if (!ret.reason.trim()) return setError("Hãy nhập lý do trả hàng.");
-    if (!confirm(`Khách trả ${qtyText(n)} ${it.don_vi ?? ""} × ${it.name}? Kho cộng lại ${qtyText(n)} ${it.don_vi ?? ""}, doanh thu phiếu giảm ${money(Math.round(n * it.unit_price))}.`)) return;
+    if (!confirm(`Khách trả ${qtyText(n)} ${it.don_vi ?? ""} × ${it.name}? Kho cộng lại ${qtyText(n)} ${it.don_vi ?? ""}, tổng phiếu được tính lại (giảm giá và VAT của phiếu vẫn giữ nguyên).`)) return;
     setBusy(true);
     const r = await supabase.rpc("khach_tra_hang", { p_item: it.id, p_qty: n, p_ly_do: ret.reason });
     setBusy(false);
@@ -187,7 +204,7 @@ export default function QuotePage() {
     load();
   }
 
-  const sum = (k: Item["kind"]) => items.filter((i) => i.kind === k).reduce((s, i) => s + lineTotal(i), 0);
+  const sum = (k: Item["kind"]) => items.filter((i) => i.kind === k).reduce((s, i) => s + i.thanh_tien, 0);
   const picked = parts.find((x) => x.id === partId);
   const overStock = !!picked && toNum(qty) > picked.stock;
   const partsTotal = sum("part");
@@ -196,8 +213,9 @@ export default function QuotePage() {
   const cancelled = !!order?.da_huy;
   const canEdit = !cancelled && (!done || (role === "chu" && editing));
   const thuRong = pays.filter((p) => !p.da_huy).reduce((s, p) => s + p.so_tien, 0);
-  const conNo = cancelled ? 0 : Math.max(0, Math.round(partsTotal + laborTotal - thuRong));
-  const conThieu = cancelled ? 0 : Math.round(partsTotal + laborTotal - thuRong);
+  const tong = tot?.tong_thanh_toan ?? 0; // tổng thanh toán (đã gồm VAT) do máy chủ tính - dùng cho công nợ và khoản thu
+  const conNo = cancelled ? 0 : Math.max(0, Math.round(tong - thuRong));
+  const conThieu = cancelled ? 0 : Math.round(tong - thuRong);
   // Phiếu đã hủy: khoản thu đã bị đảo (đánh dấu hủy, hoặc có dòng đảo kiểu cũ)
   const daDao = (p: Pay) => cancelled && p.loai !== "dao" && (p.da_huy || pays.some((d) => d.loai === "dao" && d.ref_id === p.id && !d.da_huy));
   const huyCungPhieu = (p: Pay) => !!order?.huy_luc && !!p.huy_luc && new Date(p.huy_luc).getTime() >= new Date(order.huy_luc).getTime();
@@ -255,9 +273,11 @@ export default function QuotePage() {
             <div>
               <div className="font-medium">{it.name} <span className="text-xs text-slate-500">({it.kind === "part" ? "Phụ tùng" : "Tiền công"})</span></div>
               <div className="text-sm text-slate-500">{qtyText(it.qty)}{it.kind === "part" && it.don_vi ? ` ${it.don_vi}` : ""} × {money(it.unit_price)}{it.kind === "part" && it.don_vi ? `/${it.don_vi}` : ""}</div>
+              {it.giam_tien > 0 && <div className="text-sm text-rose-700">Giảm {giamText(it.giam_kieu, it.giam_gia_tri)}: −{money(it.giam_tien)}</div>}
             </div>
             <div className="text-right shrink-0">
-              <div className="font-medium">{money(lineTotal(it))}</div>
+              {it.giam_tien > 0 && <div className="text-xs text-slate-400 line-through">{money(it.thanh_tien)}</div>}
+              <div className="font-medium">{money(it.sau_giam)}</div>
               {canEdit && <button disabled={busy} onClick={() => remove(it)} className="text-red-600 text-sm">Xóa</button>}
               {done && role === "chu" && it.kind === "part" && <button disabled={busy} onClick={() => setRet(ret?.id === it.id ? null : { id: it.id, qty: "1", reason: "" })} className="text-amber-700 text-sm ml-3">Khách trả</button>}
             </div>
@@ -274,10 +294,22 @@ export default function QuotePage() {
         {items.length === 0 && <li className="text-slate-500 text-sm">Chưa có dòng nào.</li>}
       </ul>
 
+      {canEdit && order && cfg && items.length > 0 && (
+        <GiamVat key={JSON.stringify([order.giam_kieu, order.giam_gia_tri, order.giam_ly_do, order.vat_suat, order.vat_che_do, items.map((i) => [i.id, i.giam_kieu, i.giam_gia_tri])])}
+          orderId={id} order={order} cfg={cfg} isOwner={role === "chu"} done={done}
+          items={items.map((i) => ({ id: i.id, name: i.name, thanh_tien: i.thanh_tien, giam_kieu: i.giam_kieu, giam_gia_tri: i.giam_gia_tri }))}
+          onError={setError} onSaved={(d) => { if (d.doi) report(d); else setNotice("Không có gì thay đổi."); load(); }} />
+      )}
+
       <div className="rounded-2xl p-4 space-y-1 text-white" style={{ background: "linear-gradient(135deg,#0f2747,#0866b8)" }}>
-        <div className="flex justify-between text-sm"><span>Tiền phụ tùng</span><span>{money(partsTotal)}</span></div>
-        <div className="flex justify-between text-sm"><span>Tiền công</span><span>{money(laborTotal)}</span></div>
-        <div className="flex justify-between text-xl font-bold border-t border-white/30 pt-2 mt-1"><span>Tổng báo giá</span><span>{money(partsTotal + laborTotal)}</span></div>
+        <div className="flex justify-between"><span>Tạm tính</span><span>{money(tot?.tam_tinh ?? partsTotal + laborTotal)}</span></div>
+        <div className="text-sm text-white/80 pl-3">Phụ tùng {money(partsTotal)} · Tiền công {money(laborTotal)}</div>
+        <div className="flex justify-between text-sm"><span>Giảm giá{tot && tot.giam_dong > 0 && tot.giam_phieu > 0 ? " (dòng + toàn phiếu)" : ""}</span><span>−{money(tot?.giam_gia ?? 0)}</span></div>
+        <div className="flex justify-between"><span>Tiền hàng sau giảm</span><span>{money(tot?.tien_hang ?? 0)}</span></div>
+        <div className="flex justify-between text-sm"><span>{order && order.vat_che_do === "da" ? "Trong đó VAT" : "VAT"} ({order ? vatText(Number(order.vat_suat), order.vat_che_do) : "0%"})</span><span>{money(tot?.vat ?? 0)}</span></div>
+        <div className="flex justify-between text-xl font-bold border-t border-white/30 pt-2 mt-1"><span>Tổng thanh toán</span><span>{money(tong)}</span></div>
+        <div className="flex justify-between text-sm"><span>Đã thu</span><span>{money(thuRong)}</span></div>
+        <div className="flex justify-between text-sm font-semibold"><span>{conThieu < 0 ? "Thu dư (cần hoàn khách)" : "Còn nợ"}</span><span>{money(conThieu < 0 ? -conThieu : conNo)}</span></div>
       </div>
 
       {cancelled ? null : done ? (
@@ -311,7 +343,7 @@ export default function QuotePage() {
         <section className="card space-y-3">
           <h2 className="font-bold">Thanh toán</h2>
           <div className="grid grid-cols-3 gap-2 text-sm text-center">
-            <div className="rounded-lg bg-slate-100 p-2"><div className="text-slate-500">Tổng phiếu</div><b>{money(partsTotal + laborTotal)}</b></div>
+            <div className="rounded-lg bg-slate-100 p-2"><div className="text-slate-500">Tổng thanh toán</div><b>{money(tong)}</b></div>
             <div className="rounded-lg bg-green-50 p-2"><div className="text-slate-500">Đã thu</div><b className="text-green-700">{money(thuRong)}</b></div>
             <div className={`rounded-lg p-2 ${conNo > 0 ? "bg-amber-50" : "bg-green-50"}`}><div className="text-slate-500">Còn nợ</div><b className={conNo > 0 ? "text-amber-700" : "text-green-700"}>{money(conNo)}</b></div>
           </div>
@@ -352,28 +384,36 @@ export default function QuotePage() {
         </section>
       )}
 
-      {done && role === "chu" && (
+      {role === "chu" && (done || gvLogs.length > 0) && (
         <section className="card space-y-2">
           <h2 className="font-bold">Nhật ký chỉnh sửa</h2>
-          {logs.length === 0 ? <p className="text-sm text-slate-500">Chưa có lần sửa nào sau khi hoàn thành.</p> : (
+          {logs.length === 0 && gvLogs.length === 0 ? <p className="text-sm text-slate-500">Chưa có lần sửa nào sau khi hoàn thành.</p> : (
             <ul className="space-y-2">
-              {logs.map((l) => {
+              {[...gvLogs.map((g) => ({ at: g.created_at, el: (
+                <li key={"gv" + g.id} className="border rounded-lg p-3 text-sm space-y-1">
+                  <div className="text-slate-500">{new Date(g.created_at).toLocaleString("vi-VN")} · {g.created_by_name ?? "Không rõ"}</div>
+                  <div><b className="text-violet-700">Sửa giảm giá / VAT</b>{g.da_hoan_thanh ? " (phiếu đã hoàn thành)" : ""}</div>
+                  <div>Trước: {snapText(g.truoc)}</div>
+                  <div>Sau: {snapText(g.sau)}</div>
+                  {g.ly_do && <div>Lý do: {g.ly_do}</div>}
+                  <div>Tổng: {money(g.tong_truoc)} → {money(g.tong_sau)} ({g.tong_sau - g.tong_truoc >= 0 ? "+" : "−"}{money(Math.abs(g.tong_sau - g.tong_truoc))})</div>
+                </li>) })),
+              ...logs.map((l) => {
                 const diff = l.total_after - l.total_before;
-                return (
+                return { at: l.created_at, el: (
                   <li key={l.id} className="border rounded-lg p-3 text-sm space-y-1">
                     <div className="text-slate-500">{new Date(l.created_at).toLocaleString("vi-VN")} · {l.created_by_name ?? "Không rõ"}</div>
                     <div><b className={l.action === "them" ? "text-green-700" : l.action === "tra" ? "text-amber-700" : "text-red-600"}>{l.action === "them" ? "Thêm" : l.action === "tra" ? "Khách trả" : "Xóa"}</b> {l.kind === "part" ? "phụ tùng" : "tiền công"} <b>{l.item_name}</b> ({qtyText(l.qty)} × {money(l.unit_price)})</div>
                     {l.ghi_chu && <div>Lý do: {l.ghi_chu}</div>}
                     <div>Tổng: {money(l.total_before)} → {money(l.total_after)} ({diff >= 0 ? "+" : "−"}{money(Math.abs(diff))})</div>
-                  </li>
-                );
-              })}
+                  </li>) };
+              })].sort((a, b) => (a.at < b.at ? 1 : -1)).map((x) => x.el)}
             </ul>
           )}
         </section>
       )}
 
-      {role === "chu" && <Costs orderId={id} revenue={partsTotal + laborTotal} partsCost={partsCost} cancelled={cancelled} huyLuc={order?.huy_luc ?? null} />}
+      {role === "chu" && <Costs orderId={id} revenue={tot?.doanh_thu ?? 0} partsCost={partsCost} cancelled={cancelled} huyLuc={order?.huy_luc ?? null} />}
 
       {order && <EvInfo key={String(done)} orderId={id} done={done} />}
 

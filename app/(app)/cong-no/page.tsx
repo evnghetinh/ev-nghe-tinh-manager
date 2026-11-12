@@ -9,6 +9,7 @@ import { EmptyState, Icon, LoadingBlock, PageTitle, Toast } from "@/components/u
 type Phieu = { order_id: string; ma_phieu: number; customer_id: string; bien_so: string; ngay_hoan_thanh: string | null; tong: number; da_thu: number; con_no: number };
 type Note = { id: string; customer_id: string; ngay_hen: string | null; ghi_chu: string | null; created_by_name: string | null; created_at: string };
 type Khach = { id: string; name: string; phone: string | null; tong: number; phieu: Phieu[]; oldest: string; tuoi: number; nhom: number; hen: string | null; ghiChu: string | null };
+type TongLech = { loai: string; order_id: string; ma_phieu: number; ten_khach: string; tong_phieu: number; tong_so_sanh: number; chenh: number };
 type Lech = { loai: string; order_id: string; ma_phieu: number; ten_khach: string; tong: number; da_thu: number; chenh: number };
 
 const NHOM = [
@@ -341,7 +342,9 @@ function Detail({ k, notes, today, isOwner, onBack, onDone, onError }:
 
 function DoiChieu({ tongTrang, tongQuan, tongPhieu, onError }: { tongTrang: number; tongQuan: number | null; tongPhieu: number; onError: (m: string) => void }) {
   const [lech, setLech] = useState<Lech[] | null>(null);
+  const [tongLech, setTongLech] = useState<TongLech[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const isOwner = useRole() === "chu";
   const khop = tongQuan !== null && Math.abs(tongTrang - tongQuan) < 1 && Math.abs(tongTrang - tongPhieu) < 1;
   async function run() {
     setBusy(true);
@@ -349,6 +352,13 @@ function DoiChieu({ tongTrang, tongQuan, tongPhieu, onError }: { tongTrang: numb
     setBusy(false);
     if (r.error) return onError(r.error.message);
     setLech(((r.data ?? []) as Lech[]).map((x) => ({ ...x, tong: Number(x.tong), da_thu: Number(x.da_thu), chenh: Number(x.chenh) })));
+  }
+  async function runTong() {
+    setBusy(true);
+    const r = await supabase.rpc("phieu_doi_chieu_tong");
+    setBusy(false);
+    if (r.error) return onError(r.error.message + " (đã chạy giai-doan-31.sql chưa?)");
+    setTongLech(((r.data ?? []) as TongLech[]).map((x) => ({ ...x, tong_phieu: Number(x.tong_phieu), tong_so_sanh: Number(x.tong_so_sanh), chenh: Number(x.chenh) })));
   }
   return (
     <div className="card space-y-2">
@@ -373,6 +383,25 @@ function DoiChieu({ tongTrang, tongQuan, tongPhieu, onError }: { tongTrang: numb
           ))}
         </ul>
       ))}
+      {isOwner && (
+        <div className="border-t pt-2 space-y-2">
+          <p className="text-sm text-slate-600">Đối chiếu tổng thanh toán của mọi phiếu: trang in = tổng trong phiếu = tổng tính công nợ = tổng trong danh sách phiếu.</p>
+          <button type="button" disabled={busy} onClick={runTong} className="btn-secondary disabled:opacity-50">Đối chiếu tổng phiếu</button>
+          {tongLech && (tongLech.length === 0 ? <p className="text-sm text-green-700">✓ Mọi phiếu khớp: không có chỗ lệch.</p> : (
+            <ul className="divide-y text-sm">
+              {tongLech.map((l) => (
+                <li key={l.order_id + l.loai}>
+                  <Link href={`/tiep-nhan/${l.order_id}`} className="block py-2 min-h-11">
+                    <div className="font-semibold">{maPhieu(l.ma_phieu)} · {l.ten_khach}</div>
+                    <div className="text-red-700">{l.loai}</div>
+                    <div className="text-slate-600">Tổng trong phiếu {money(l.tong_phieu)} · số so sánh {money(l.tong_so_sanh)} · chênh {money(l.chenh)}</div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

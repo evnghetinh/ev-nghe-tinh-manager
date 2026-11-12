@@ -31,7 +31,7 @@ type XemTruoc = {
 type QuyThang = { quy: Quy; dau: number; thu: number; chi: number; chuyen: number; kiem: number; cuoi: number };
 type NhomTien = { nhom: string; tien_mat: number; tai_khoan: number; tong: number; tinh_vao_lai_lo?: boolean };
 type TongThang = { co_du_lieu: boolean; bat_dau: string | null; quy?: QuyThang[]; thu?: NhomTien[]; chi?: NhomTien[] };
-type Thang12 = { thang: number; co_du_lieu: boolean; thu: number; chi: number };
+type Thang12 = { thang: number; co_du_lieu: boolean; thu: number; chi: number; vat: number; giam: number };
 const NHOM_THU: Record<string, string> = { thu_phieu: "Từ phiếu sửa chữa", thu_no: "Thu nợ khách", thu_khac: "Phiếu thu khác" };
 const KIND_CP: Record<string, string> = { vat_tu: "Vật tư tiêu hao", thue_ngoai: "Thuê ngoài", khac: "Khác" };
 
@@ -129,7 +129,11 @@ export default function SoQuyPage() {
   const loadBang12 = useCallback(async () => {
     const r = await supabase.rpc("so_quy_12_thang", { p_nam: namBang });
     if (r.error) return setError(r.error.message + " (đã chạy giai-doan-30.sql chưa?)");
-    setBang12((r.data as Thang12[]).map((x) => ({ ...x, thu: Number(x.thu), chi: Number(x.chi) })));
+    // VAT thu hộ và giảm giá theo tháng hoàn thành phiếu (cùng hàm tính tổng phiếu của giai đoạn 31)
+    const bc = await supabase.rpc("bao_cao_phieu", { p_tu: `${namBang}-01-01`, p_den: `${namBang}-12-31`, p_nhom: "thang" });
+    const vg = new Map<number, { vat: number; giam: number }>();
+    if (!bc.error) for (const x of (bc.data ?? []) as { ky: string; vat: number; giam_gia: number }[]) vg.set(Number(x.ky.slice(5, 7)), { vat: Number(x.vat), giam: Number(x.giam_gia) });
+    setBang12((r.data as Thang12[]).map((x) => ({ ...x, thu: Number(x.thu), chi: Number(x.chi), vat: vg.get(x.thang)?.vat ?? 0, giam: vg.get(x.thang)?.giam ?? 0 })));
   }, [namBang]);
 
   function chonThang(n: number, t: number) {
@@ -428,18 +432,18 @@ export default function SoQuyPage() {
           </div>
           {!bang12 ? <LoadingBlock rows={2} /> : (
             <div className="overflow-x-auto rounded-lg border">
-              <table className="w-full min-w-[520px] text-sm">
-                <thead><tr className="bg-slate-50 text-left"><th className="p-2">Tháng</th><th className="p-2 text-right">Thu</th><th className="p-2 text-right">Chi</th><th className="p-2 text-right">Chênh lệch</th></tr></thead>
+              <table className="w-full min-w-[720px] text-sm">
+                <thead><tr className="bg-slate-50 text-left"><th className="p-2">Tháng</th><th className="p-2 text-right">Thu</th><th className="p-2 text-right">Chi</th><th className="p-2 text-right">Chênh lệch</th><th className="p-2 text-right">VAT thu hộ</th><th className="p-2 text-right">Giảm giá</th></tr></thead>
                 <tbody>
                   {bang12.map((m) => (
                     <tr key={m.thang} className={`border-t ${namBang === nam && m.thang === thang ? "bg-brand-50 font-semibold" : ""}`}>
                       <td className="p-0"><button className="bare w-full text-left px-2 min-h-11 text-brand-700 underline" onClick={() => chonThang(namBang, m.thang)}>Tháng {m.thang}</button></td>
                       {m.co_du_lieu
-                        ? <><td className="p-2 text-right">{money(m.thu)}</td><td className="p-2 text-right">{money(m.chi)}</td><td className={`p-2 text-right ${m.thu - m.chi < 0 ? "text-red-700" : ""}`}>{signed(m.thu - m.chi)}</td></>
-                        : <td colSpan={3} className="p-2 text-right text-slate-500">chưa có dữ liệu sổ quỹ</td>}
+                        ? <><td className="p-2 text-right">{money(m.thu)}</td><td className="p-2 text-right">{money(m.chi)}</td><td className={`p-2 text-right ${m.thu - m.chi < 0 ? "text-red-700" : ""}`}>{signed(m.thu - m.chi)}</td><td className="p-2 text-right">{money(m.vat)}</td><td className="p-2 text-right">{money(m.giam)}</td></>
+                        : <><td colSpan={3} className="p-2 text-right text-slate-500">chưa có dữ liệu sổ quỹ</td><td className="p-2 text-right">{money(m.vat)}</td><td className="p-2 text-right">{money(m.giam)}</td></>}
                     </tr>
                   ))}
-                  <tr className="border-t-2 font-bold bg-slate-50"><td className="p-2">Cả năm</td><td className="p-2 text-right">{money(sum(bang12.map((m) => m.thu)))}</td><td className="p-2 text-right">{money(sum(bang12.map((m) => m.chi)))}</td><td className="p-2 text-right">{signed(sum(bang12.map((m) => m.thu - m.chi)))}</td></tr>
+                  <tr className="border-t-2 font-bold bg-slate-50"><td className="p-2">Cả năm</td><td className="p-2 text-right">{money(sum(bang12.map((m) => m.thu)))}</td><td className="p-2 text-right">{money(sum(bang12.map((m) => m.chi)))}</td><td className="p-2 text-right">{signed(sum(bang12.map((m) => m.thu - m.chi)))}</td><td className="p-2 text-right">{money(sum(bang12.map((m) => m.vat)))}</td><td className="p-2 text-right">{money(sum(bang12.map((m) => m.giam)))}</td></tr>
                 </tbody>
               </table>
             </div>

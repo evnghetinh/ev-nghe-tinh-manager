@@ -6,19 +6,16 @@ import { money, tonText } from "@/lib/format";
 import { useRole } from "@/lib/role";
 import { Icon, PageTitle, EmptyState, Toast } from "@/components/ui";
 
-type Cost = { cost_price: number };
-type Paid = { paid_at: string; repair_items: { kind: string; qty: number; unit_price: number; repair_item_costs: Cost | Cost[] | null }[]; repair_costs: { kind: string; amount: number }[] };
-const costOf = (i: Paid["repair_items"][number]) => {
-  const c = i.repair_item_costs;
-  return (Array.isArray(c) ? c[0]?.cost_price : c?.cost_price) ?? 0;
-};
-type Bd = { rev: number; parts: number; vat_tu: number; thue_ngoai: number; khac: number };
-const emptyBd = (): Bd => ({ rev: 0, parts: 0, vat_tu: 0, thue_ngoai: 0, khac: 0 });
+// Mỗi dòng = một ngày hoặc một tháng: doanh thu SAU giảm giá, TRƯỚC thuế (hàm bao_cao_phieu, giai đoạn 31)
+type Paid = { ky: string; doanh_thu: number; giam_gia: number; vat: number; gia_von: number; chi_vat_tu: number; chi_thue_ngoai: number; chi_khac: number };
+const num = (x: Paid): Paid => ({ ...x, doanh_thu: Number(x.doanh_thu), giam_gia: Number(x.giam_gia), vat: Number(x.vat), gia_von: Number(x.gia_von), chi_vat_tu: Number(x.chi_vat_tu), chi_thue_ngoai: Number(x.chi_thue_ngoai), chi_khac: Number(x.chi_khac) });
+type Bd = { rev: number; parts: number; vat_tu: number; thue_ngoai: number; khac: number; vat: number; giam: number };
+const emptyBd = (): Bd => ({ rev: 0, parts: 0, vat_tu: 0, thue_ngoai: 0, khac: 0, vat: 0, giam: 0 });
+const addBd = (b: Bd, r: Paid) => { b.rev += r.doanh_thu; b.parts += r.gia_von; b.vat_tu += r.chi_vat_tu; b.thue_ngoai += r.chi_thue_ngoai; b.khac += r.chi_khac; b.vat += r.vat; b.giam += r.giam_gia; };
 const profitOf = (b: Bd) => b.rev - b.parts - b.vat_tu - b.thue_ngoai - b.khac;
-const rows: [string, keyof Bd][] = [["Doanh thu", "rev"], ["Giá vốn phụ tùng", "parts"], ["Chi phí vật tư tiêu hao", "vat_tu"], ["Chi phí thuê ngoài", "thue_ngoai"], ["Chi phí khác", "khac"]];
+const rows: [string, "rev" | "parts" | "vat_tu" | "thue_ngoai" | "khac"][] = [["Doanh thu", "rev"], ["Giá vốn phụ tùng", "parts"], ["Chi phí vật tư tiêu hao", "vat_tu"], ["Chi phí thuê ngoài", "thue_ngoai"], ["Chi phí khác", "khac"]];
 type Low = { id: string; name: string; stock: number; min_stock: number; don_vi_nhap: string; don_vi_ban: string; he_so: number };
 type Month = { label: string; rev: number; parts: number; other: number; profit: number };
-const PAID_SEL = "paid_at, repair_items(kind, qty, unit_price, repair_item_costs(cost_price)), repair_costs(kind, amount)";
 
 export default function Dashboard() {
   const role = useRole();
@@ -36,19 +33,13 @@ export default function Dashboard() {
       const today = new Date().toLocaleDateString("sv-SE");
       const first = today.slice(0, 8) + "01";
       const o = await supabase.from("repair_orders").select("*", { count: "exact", head: true }).in("status", ["Chờ xử lý", "Đang sửa"]);
-      const p = await supabase.from("repair_orders").select("paid_at, repair_items(kind, qty, unit_price, repair_item_costs(cost_price)), repair_costs(kind, amount)")
-        .eq("stock_deducted", true).eq("da_huy", false).eq("repair_costs.da_huy", false).gte("paid_at", first).lte("paid_at", today);
+      const p = await supabase.rpc("bao_cao_phieu", { p_tu: first, p_den: today, p_nhom: "ngay" });
       const pt = await supabase.from("parts").select("id, name, stock, min_stock, don_vi_nhap, don_vi_ban, he_so").eq("is_hidden", false).order("stock");
       if (p.error || pt.error) setError((p.error ?? pt.error)!.message);
       const day = emptyBd(), mon = emptyBd();
-      for (const r of (p.data ?? []) as unknown as Paid[]) {
-        const rev = r.repair_items.reduce((s, i) => s + i.qty * i.unit_price, 0);
-        const parts = r.repair_items.filter((i) => i.kind === "part").reduce((s, i) => s + i.qty * costOf(i), 0);
-        for (const b of r.paid_at === today ? [day, mon] : [mon]) {
-          b.rev += rev;
-          b.parts += parts;
-          for (const c of r.repair_costs ?? []) if (c.kind === "vat_tu" || c.kind === "thue_ngoai" || c.kind === "khac") b[c.kind] += c.amount;
-        }
+      for (const r of ((p.data ?? []) as Paid[]).map(num)) {
+        addBd(mon, r);
+        if (r.ky === today) addBd(day, r);
       }
       // 6 tháng gần nhất cho biểu đồ (cùng công thức doanh thu / lợi nhuận)
       const now = new Date();
@@ -56,14 +47,11 @@ export default function Dashboard() {
         const d = new Date(now.getFullYear(), now.getMonth() - 5 + n, 1);
         return { k: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`, label: `T${d.getMonth() + 1}` };
       });
-      const h = await supabase.from("repair_orders").select(PAID_SEL).eq("stock_deducted", true).eq("da_huy", false).eq("repair_costs.da_huy", false).gte("paid_at", keys[0].k + "-01").lte("paid_at", today);
+      const h = await supabase.rpc("bao_cao_phieu", { p_tu: keys[0].k + "-01", p_den: today, p_nhom: "thang" });
       const agg = new Map(keys.map((x) => [x.k, emptyBd()]));
-      for (const r of (h.data ?? []) as unknown as Paid[]) {
-        const b = agg.get(r.paid_at.slice(0, 7));
-        if (!b) continue;
-        b.rev += r.repair_items.reduce((t, i) => t + i.qty * i.unit_price, 0);
-        b.parts += r.repair_items.filter((i) => i.kind === "part").reduce((t, i) => t + i.qty * costOf(i), 0);
-        for (const c of r.repair_costs ?? []) if (c.kind === "vat_tu" || c.kind === "thue_ngoai" || c.kind === "khac") b[c.kind] += c.amount;
+      for (const r of ((h.data ?? []) as Paid[]).map(num)) {
+        const b = agg.get(r.ky.slice(0, 7));
+        if (b) addBd(b, r);
       }
       // Tháng hiện tại lấy đúng số của thẻ "Lợi nhuận tháng này" để luôn khớp
       agg.set(keys[5].k, mon);
@@ -92,6 +80,8 @@ export default function Dashboard() {
       sub: kho ? `${kho.con} loại còn hàng · giá bán dự kiến ${money(kho.ban)}${kho.thieu > 0 ? ` · ${kho.thieu} món chưa có giá nhập` : ""}` : undefined },
     { label: "Doanh thu hôm nay", value: money(bd[0].rev), icon: "money", tone: "bg-blue-100 text-blue-700", loss: false },
     { label: "Doanh thu tháng này", value: money(bd[1].rev), icon: "money", tone: "bg-indigo-100 text-indigo-700", loss: false },
+    { label: "VAT thu hộ trong tháng", value: money(bd[1].vat), icon: "receipt", tone: "bg-violet-100 text-violet-700", loss: false, sub: "Thuế thu hộ nhà nước, không tính vào doanh thu" },
+    { label: "Giảm giá trong tháng", value: money(bd[1].giam), icon: "money", tone: "bg-rose-100 text-rose-700", loss: false, sub: "Tổng tiền đã giảm cho khách" },
     { label: "Lợi nhuận hôm nay", value: money(profitOf(bd[0])), loss: profitOf(bd[0]) < 0, icon: "trend", tone: "bg-emerald-100 text-emerald-700" },
     { label: "Lợi nhuận tháng này", value: money(profitOf(bd[1])), loss: profitOf(bd[1]) < 0, icon: "trend", tone: "bg-teal-100 text-teal-700" },
   ];

@@ -21,7 +21,7 @@ const HANH_DONG: Record<string, string> = {
   khach_tra: "Khách trả hàng", khach_tra_hang: "Khách trả hàng", kiem_ke: "Kiểm kê điều chỉnh", huy_nhap_hang: "Hủy nhập hàng",
   doi_don_vi: "Đổi đơn vị", ton_dau: "Tồn đầu kỳ", sua_lan_nhap: "Sửa lần nhập", huy_lan_nhap: "Hủy lần nhập",
   sua_thong_tin_ev: "Sửa thông tin EV", khoi_tao: "Khởi tạo", thu_no_khach: "Thu nợ khách", ghi_chu_cong_no: "Ghi chú công nợ",
-  thiet_lap_quy: "Nhập số dư đầu kỳ quỹ", phieu_thu: "Phiếu thu", phieu_chi: "Phiếu chi", chuyen_quy: "Chuyển quỹ", kiem_quy: "Kiểm quỹ", huy_giao_dich_quy: "Hủy giao dịch sổ quỹ",
+  thiet_lap_quy: "Nhập số dư đầu kỳ quỹ", phieu_thu: "Phiếu thu", phieu_chi: "Phiếu chi", chuyen_quy: "Chuyển quỹ", kiem_quy: "Kiểm quỹ", huy_giao_dich_quy: "Hủy giao dịch sổ quỹ", sua_giam_gia_vat: "Sửa giảm giá / VAT", sua_cai_dat_giam_gia_vat: "Sửa cài đặt giảm giá và VAT",
 };
 const hd = (k: string) => HANH_DONG[k] ?? k;
 const VAI_TRO: Record<string, string> = { chu: "Chủ xưởng", nhan_vien: "Nhân viên" };
@@ -30,7 +30,8 @@ const KEY: Record<string, string> = {
   huy_boi_ten: "Hủy bởi", huy_luc: "Hủy lúc", so_tien: "Số tiền", amount: "Số tiền", amount_before: "Số tiền trước", amount_after: "Số tiền sau",
   ton: "Tồn", so_luong_thay_doi: "Số lượng thay đổi", don_vi: "Đơn vị", qty: "Số lượng", unit_price: "Đơn giá", name: "Tên", kind: "Loại", content: "Nội dung",
   loai: "Loại", hinh_thuc: "Hình thức", ngay_thu: "Ngày thu", ghi_chu: "Ghi chú", note: "Ghi chú", sale_price: "Giá bán", cost_price: "Giá nhập/vốn",
-  tong_phieu: "Tổng phiếu", so_luong: "Số lượng", don_gia: "Đơn giá", loai_dong: "Loại dòng", code: "Mã", issue: "Lỗi báo", odometer: "Số km",
+  tong_phieu: "Tổng phiếu", giam_kieu: "Kiểu giảm giá", giam_gia_tri: "Giá trị giảm giá", giam_ly_do: "Lý do giảm giá", vat_suat: "Thuế suất VAT", vat_che_do: "Cách tính VAT",
+  giam_toi_da_nv: "Ngưỡng giảm giá nhân viên (%)", vat_suat_ds: "Các mức thuế suất", so_luong: "Số lượng", don_gia: "Đơn giá", loai_dong: "Loại dòng", code: "Mã", issue: "Lỗi báo", odometer: "Số km",
   soc_nhan: "SOC", soh_nhan: "SOH", pin_ghi_chu: "Ghi chú pin", nguyen_nhan: "Nguyên nhân", ten: "Tên", role: "Vai trò", is_hidden: "Ẩn",
   category: "Hạng mục", contributor: "Người góp", spent_on: "Ngày chi", contributed_on: "Ngày góp", month: "Tháng", start_date: "Ngày bắt đầu", paid_by: "Người chi",
   imported_on: "Ngày nhập", supplier: "Nhà cung cấp", item_count: "Số món", total: "Tổng", stock: "Tồn", min_stock: "Tồn tối thiểu", he_so: "Hệ số",

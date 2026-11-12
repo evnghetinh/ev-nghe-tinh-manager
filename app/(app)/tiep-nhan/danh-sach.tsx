@@ -10,10 +10,10 @@ import { EmptyState, Icon, LoadingBlock, StatusBadge } from "@/components/ui";
 export type Row = {
   id: string; code: number; received_at: string; status: string; da_huy: boolean; stock_deducted: boolean;
   khach: string; sdt: string | null; bien_so: string; xe: string; vin: string | null; odometer: number | null; ktv: string | null;
-  issue: string; tong: number; da_thu: number; con_no: number; loi_nhuan: number | null; tong_hang: number;
+  issue: string; tong: number; da_thu: number; con_no: number; von: number | null; loi_nhuan: number | null; vat: number | null; giam_gia: number | null; tong_hang: number;
 };
 type Nhom = { nhom: string; so_luong: number; tong: number | null };
-type ColKey = "code" | "received_at" | "status" | "khach" | "sdt" | "bien_so" | "xe" | "vin" | "odometer" | "ktv" | "issue" | "tong" | "da_thu" | "con_no" | "loi_nhuan";
+type ColKey = "code" | "received_at" | "status" | "khach" | "sdt" | "bien_so" | "xe" | "vin" | "odometer" | "ktv" | "issue" | "tong" | "da_thu" | "con_no" | "von" | "loi_nhuan" | "vat" | "giam_gia";
 type Col = { key: ColKey; label: string; num?: boolean; owner?: boolean; group?: "status" | "ngay" | "khach" | "ktv" };
 
 const ALL_COLS: Col[] = [
@@ -31,7 +31,10 @@ const ALL_COLS: Col[] = [
   { key: "tong", label: "Tổng tiền", num: true },
   { key: "da_thu", label: "Đã thu", num: true },
   { key: "con_no", label: "Còn nợ", num: true },
+  { key: "von", label: "Giá vốn", num: true, owner: true },
   { key: "loi_nhuan", label: "Lợi nhuận", num: true, owner: true },
+  { key: "vat", label: "VAT", num: true, owner: true },
+  { key: "giam_gia", label: "Giảm giá", num: true, owner: true },
 ];
 const COL_BY = Object.fromEntries(ALL_COLS.map((c) => [c.key, c])) as Record<ColKey, Col>;
 const PINNED: ColKey[] = ["code", "bien_so"]; // luôn cố định ở bên trái
@@ -65,7 +68,10 @@ function cell(r: Row, k: ColKey): string {
     case "tong": return money(r.tong);
     case "da_thu": return money(r.da_thu);
     case "con_no": return r.con_no > 0.5 ? money(r.con_no) : "—";
+    case "von": return r.von == null ? "—" : money(r.von);
     case "loi_nhuan": return r.loi_nhuan == null ? "—" : money(r.loi_nhuan);
+    case "vat": return r.vat == null ? "—" : money(r.vat);
+    case "giam_gia": return r.giam_gia == null ? "—" : money(r.giam_gia);
     default: return String(r[k as keyof Row] ?? "");
   }
 }
@@ -148,8 +154,8 @@ export default function DanhSach({ initialTim, reloadKey, onStatus, onRemove, on
       ...filterArgs, p_sap_xep: sort.key, p_huong: sort.dir, p_gioi_han: PAGE, p_bat_dau: offset,
       p_nhom_cot: nhom !== undefined ? group : null, p_nhom_gia_tri: nhom ?? null,
     });
-    if (r.error) throw new Error(r.error.message + " (đã chạy giai-doan-29.sql chưa?)");
-    return ((r.data ?? []) as Row[]).map((x) => ({ ...x, tong: Number(x.tong), da_thu: Number(x.da_thu), con_no: Number(x.con_no), loi_nhuan: x.loi_nhuan == null ? null : Number(x.loi_nhuan), tong_hang: Number(x.tong_hang) }));
+    if (r.error) throw new Error(r.error.message + " (đã chạy giai-doan-31.sql chưa?)");
+    return ((r.data ?? []) as Row[]).map((x) => ({ ...x, tong: Number(x.tong), da_thu: Number(x.da_thu), con_no: Number(x.con_no), von: x.von == null ? null : Number(x.von), loi_nhuan: x.loi_nhuan == null ? null : Number(x.loi_nhuan), vat: x.vat == null ? null : Number(x.vat), giam_gia: x.giam_gia == null ? null : Number(x.giam_gia), tong_hang: Number(x.tong_hang) }));
   }, [filterArgs, sort, group]);
 
   // Tải lại khi đổi bộ lọc / sắp xếp / nhóm / sau khi đổi trạng thái
@@ -220,8 +226,8 @@ export default function DanhSach({ initialTim, reloadKey, onStatus, onRemove, on
     try {
       const r = await supabase.rpc("ds_phieu_tiep_nhan", { ...filterArgs, p_sap_xep: sort.key, p_huong: sort.dir, p_gioi_han: 20000, p_bat_dau: 0, p_nhom_cot: null, p_nhom_gia_tri: null });
       if (r.error) throw new Error(r.error.message);
-      const data = (r.data as Row[]).map((x) => ({ ...x, tong: Number(x.tong), da_thu: Number(x.da_thu), con_no: Number(x.con_no), loi_nhuan: x.loi_nhuan == null ? null : Number(x.loi_nhuan) }));
-      const num = (r: Row, k: ColKey) => (k === "tong" || k === "da_thu" || k === "con_no" ? r[k] : k === "loi_nhuan" ? (r.loi_nhuan ?? "") : k === "odometer" ? (r.odometer ?? "") : k === "received_at" ? fmtTime(r.received_at) : k === "code" ? ma(r.code) : String(r[k as keyof Row] ?? ""));
+      const data = (r.data as Row[]).map((x) => ({ ...x, tong: Number(x.tong), da_thu: Number(x.da_thu), con_no: Number(x.con_no), von: x.von == null ? null : Number(x.von), loi_nhuan: x.loi_nhuan == null ? null : Number(x.loi_nhuan), vat: x.vat == null ? null : Number(x.vat), giam_gia: x.giam_gia == null ? null : Number(x.giam_gia) }));
+      const num = (r: Row, k: ColKey) => (k === "tong" || k === "da_thu" || k === "con_no" ? r[k] : k === "von" || k === "loi_nhuan" || k === "vat" || k === "giam_gia" ? (r[k] ?? "") : k === "odometer" ? (r.odometer ?? "") : k === "received_at" ? fmtTime(r.received_at) : k === "code" ? ma(r.code) : String(r[k as keyof Row] ?? ""));
       const aoa = [cols.map((c) => c.label), ...data.map((x) => cols.map((c) => num(x, c.key)))];
       const ws = XLSX.utils.aoa_to_sheet(aoa);
       ws["!cols"] = cols.map((c) => ({ wch: c.key === "issue" ? 40 : c.key === "received_at" ? 19 : 14 }));
