@@ -46,8 +46,8 @@ function useRows<T>(table: string, order: string) {
 }
 
 // Không xóa cứng: "Hủy" bắt buộc có lý do, dòng được giữ lại và đánh dấu đã hủy
-async function huyVon(bang: string, id: string, setErr: (s: string) => void): Promise<boolean> {
-  const ly = window.prompt("Lý do hủy (bắt buộc):");
+async function huyVon(bang: string, id: string, setErr: (s: string) => void, daGhiQuy = false): Promise<boolean> {
+  const ly = window.prompt(daGhiQuy ? "Khoản này đã ghi vào Sổ quỹ: hủy sẽ thêm dòng đảo trong Sổ quỹ và hủy cả khoản này.\n\nLý do hủy (bắt buộc):" : "Lý do hủy (bắt buộc):");
   if (ly === null) return false;
   if (!ly.trim()) { setErr("Bắt buộc nhập lý do hủy."); return false; }
   return run(supabase.rpc("von_huy", { p_bang: bang, p_id: id, p_ly_do: ly.trim() }), setErr);
@@ -78,6 +78,55 @@ function Card({ title, children }: { title?: string; children: React.ReactNode }
   return <div className="card space-y-3">{title && <h2 className="font-semibold text-navy-900">{title}</h2>}{children}</div>;
 }
 
+/* ---------- Ghi vào Sổ quỹ khi thêm vốn góp / chi phí mở xưởng ---------- */
+const QUYS = ["Tiền mặt", "Tài khoản ngân hàng"];
+type GhiQuy = { ghi: boolean; quy: string; chon: string };
+const GHI0: GhiQuy = { ghi: false, quy: "Tiền mặt", chon: "" };
+type QuyTrung = { so_quy_id: string; so_phieu: string | null; quy: string; ten: string | null; so_tien: number; ngay: string; loai_hien_tai: string; cung_ten: boolean };
+
+// Tìm dòng sổ quỹ cùng ngày, cùng số tiền chưa gắn với khoản vốn nào (có thể là nhập hai nơi)
+function useQuyTrung(kieu: "gop" | "mo_xuong", ten: string, tien: number, ngay: string, bat: boolean) {
+  const [ds, setDs] = useState<QuyTrung[]>([]);
+  useEffect(() => {
+    if (!bat || tien <= 0 || !ngay) return;
+    let bo = false;
+    supabase.rpc("von_tim_trung_quy", { p_kieu: kieu, p_ten: ten, p_so_tien: tien, p_ngay: ngay }).then((r) => {
+      if (!bo) setDs(r.error ? [] : ((r.data ?? []) as QuyTrung[]).map((x) => ({ ...x, so_tien: Number(x.so_tien) })));
+    });
+    return () => { bo = true; };
+  }, [kieu, ten, tien, ngay, bat]);
+  return bat && tien > 0 ? ds : [];
+}
+
+function GhiQuyBox({ v, setV, trung }: { v: GhiQuy; setV: (x: GhiQuy) => void; trung: QuyTrung[] }) {
+  return (
+    <div className="rounded-xl border p-3 space-y-2">
+      <label className="flex items-center gap-3 min-h-11">
+        <input type="checkbox" className="h-5 w-5 shrink-0" checked={v.ghi} onChange={(e) => setV({ ...v, ghi: e.target.checked, chon: "" })} />
+        <span className="text-sm">Ghi vào Sổ quỹ luôn (tiền đã vào / ra quỹ)</span>
+      </label>
+      {v.ghi && (
+        <>
+          <select className={inp} value={v.quy} onChange={(e) => setV({ ...v, quy: e.target.value })}>{QUYS.map((q) => <option key={q}>{q}</option>)}</select>
+          {trung.length > 0 && (
+            <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-3 space-y-2 text-sm">
+              <div className="font-semibold text-amber-900">Cảnh báo: Sổ quỹ đã có dòng cùng ngày, cùng số tiền. Có thể bạn đã nhập khoản này rồi.</div>
+              <ul className="space-y-1">
+                {trung.map((x) => <li key={x.so_quy_id} className="break-words">{x.so_phieu ?? "Dòng quỹ"} · {x.quy} · {x.ten || "không có tên"} · {money(x.so_tien)} · {fmtDate(x.ngay)} · loại {x.loai_hien_tai} {x.cung_ten && <span className="badge bg-emerald-100 text-emerald-800">cùng tên</span>}</li>)}
+              </ul>
+              <select className={inp} value={v.chon} onChange={(e) => setV({ ...v, chon: e.target.value })}>
+                <option value="">— Bạn chọn (bắt buộc) —</option>
+                {trung.map((x) => <option key={x.so_quy_id} value={x.so_quy_id}>Là CÙNG khoản: {x.so_phieu ?? "dòng quỹ"} · {money(x.so_tien)} (chỉ gắn lại, không ghi thêm tiền)</option>)}
+                <option value="moi">Là khoản KHÁC (ghi thêm vào Sổ quỹ)</option>
+              </select>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function Msg({ error }: { error: string }) {
   return <Toast text={error} />;
 }
@@ -89,21 +138,30 @@ async function run(p: PromiseLike<{ error: { message: string } | null }>, setErr
 }
 
 /* ---------- 1. Chi phí mở xưởng ---------- */
-function SetupSection({ rows, huy, reload, error }: { rows: Setup[]; huy: (Setup & Huy)[]; reload: () => void; error: string }) {
+function SetupSection({ rows, huy, reload, error, linked, reloadLinks }: { rows: Setup[]; huy: (Setup & Huy)[]; reload: () => void; error: string; linked: Set<string>; reloadLinks: () => void }) {
   const empty = { id: "", spent_on: today(), category: CATS[0], custom: "", amount: "", paid_by: "", note: "" };
   const [f, setF] = useState(empty);
   const [err, setErr] = useState("");
+  const [ghi, setGhi] = useState<GhiQuy>(GHI0);
   const total = rows.reduce((s, r) => s + r.amount, 0);
+  const trungQ = useQuyTrung("mo_xuong", f.paid_by, num(f.amount), f.spent_on, ghi.ghi && !f.id);
 
   async function save() {
     const category = f.category === "Khác" && f.custom.trim() ? f.custom.trim() : f.category;
     if (!f.amount || num(f.amount) <= 0) return setErr("Hãy nhập số tiền.");
+    if (!f.id && ghi.ghi) {
+      if (trungQ.length > 0 && !ghi.chon) return setErr("Hãy chọn: cùng khoản đã có trong Sổ quỹ hay là khoản khác.");
+      const r = await supabase.rpc("von_quy_ghi", { p_kieu: "mo_xuong", p_von_id: null, p_so_quy_id: ghi.chon && ghi.chon !== "moi" ? ghi.chon : null, p_quy: ghi.quy, p_so_tien: num(f.amount), p_ngay: f.spent_on, p_ten: f.paid_by.trim() || null, p_hang_muc: category, p_ghi_chu: f.note.trim() || null });
+      if (r.error) return setErr(r.error.message + " (đã chạy giai-doan-32.sql chưa?)");
+      setErr(""); setF(empty); setGhi(GHI0); reload(); reloadLinks();
+      return;
+    }
     const row = { spent_on: f.spent_on, category, amount: num(f.amount), paid_by: f.paid_by.trim() || null, note: f.note.trim() || null };
     const q = f.id ? supabase.from("von_chi_phi_mo_xuong").update(row).eq("id", f.id) : supabase.from("von_chi_phi_mo_xuong").insert(row);
     if (await run(q, setErr)) { setF(empty); reload(); }
   }
   async function del(r: Setup) {
-    if (await huyVon("von_chi_phi_mo_xuong", r.id, setErr)) reload();
+    if (await huyVon("von_chi_phi_mo_xuong", r.id, setErr, linked.has(r.id))) { reload(); reloadLinks(); }
   }
   function edit(r: Setup) {
     const known = CATS.includes(r.category);
@@ -121,6 +179,7 @@ function SetupSection({ rows, huy, reload, error }: { rows: Setup[]; huy: (Setup
           <input className={inp} placeholder="Người chi" value={f.paid_by} onChange={(e) => setF({ ...f, paid_by: e.target.value })} />
           <input className={inp} placeholder="Ghi chú" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
         </div>
+        {!f.id && <GhiQuyBox v={ghi} setV={setGhi} trung={trungQ} />}
         <Msg error={err || error} />
         <div className="flex gap-2">
           <button onClick={save} className={`${btn} btn-primary`}>{f.id ? "Lưu thay đổi" : "Thêm"}</button>
@@ -134,11 +193,11 @@ function SetupSection({ rows, huy, reload, error }: { rows: Setup[]; huy: (Setup
             {rows.map((r) => (
               <li key={r.id} className="py-2 flex gap-2 items-start">
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium">{r.category} <span className="font-normal text-slate-500 text-sm">· {fmtDate(r.spent_on)}</span></div>
+                  <div className="font-medium">{r.category} <span className="font-normal text-slate-500 text-sm">· {fmtDate(r.spent_on)}</span>{linked.has(r.id) && <span className="ml-2 badge bg-emerald-100 text-emerald-800">Đã ghi Sổ quỹ</span>}</div>
                   <div className="text-sm text-slate-500">{[r.paid_by && `Người chi: ${r.paid_by}`, r.note].filter(Boolean).join(" · ")}</div>
                 </div>
                 <div className="text-right"><div className="font-medium">{money(r.amount)}</div>
-                  <button onClick={() => edit(r)} className="bare text-sm text-green-700 px-2 min-h-11">Sửa</button>
+                  {!linked.has(r.id) && <button onClick={() => edit(r)} className="bare text-sm text-green-700 px-2 min-h-11">Sửa</button>}
                   <button onClick={() => del(r)} className="bare text-sm text-red-600 px-2 min-h-11">Hủy</button></div>
               </li>
             ))}
@@ -151,22 +210,31 @@ function SetupSection({ rows, huy, reload, error }: { rows: Setup[]; huy: (Setup
 }
 
 /* ---------- 2. Vốn góp ---------- */
-function ContribSection({ rows, huy, reload, error, setupTotal }: { rows: Contrib[]; huy: (Contrib & Huy)[]; reload: () => void; error: string; setupTotal: number }) {
+function ContribSection({ rows, huy, reload, error, setupTotal, linked, reloadLinks }: { rows: Contrib[]; huy: (Contrib & Huy)[]; reload: () => void; error: string; setupTotal: number; linked: Set<string>; reloadLinks: () => void }) {
   const empty = { id: "", contributor: "", amount: "", contributed_on: today(), note: "" };
   const [f, setF] = useState(empty);
   const [err, setErr] = useState("");
+  const [ghi, setGhi] = useState<GhiQuy>(GHI0);
   const total = rows.reduce((s, r) => s + r.amount, 0);
   const diff = total - setupTotal;
+  const trungQ = useQuyTrung("gop", f.contributor, num(f.amount), f.contributed_on, ghi.ghi && !f.id);
 
   async function save() {
     if (!f.contributor.trim()) return setErr("Hãy nhập tên người góp.");
     if (num(f.amount) <= 0) return setErr("Hãy nhập số tiền lớn hơn 0.");
+    if (!f.id && ghi.ghi) {
+      if (trungQ.length > 0 && !ghi.chon) return setErr("Hãy chọn: cùng khoản đã có trong Sổ quỹ hay là khoản khác.");
+      const r = await supabase.rpc("von_quy_ghi", { p_kieu: "gop", p_von_id: null, p_so_quy_id: ghi.chon && ghi.chon !== "moi" ? ghi.chon : null, p_quy: ghi.quy, p_so_tien: num(f.amount), p_ngay: f.contributed_on, p_ten: f.contributor.trim(), p_hang_muc: null, p_ghi_chu: f.note.trim() || null });
+      if (r.error) return setErr(r.error.message + " (đã chạy giai-doan-32.sql chưa?)");
+      setErr(""); setF(empty); setGhi(GHI0); reload(); reloadLinks();
+      return;
+    }
     const row = { contributor: f.contributor.trim(), amount: num(f.amount), contributed_on: f.contributed_on, note: f.note.trim() || null };
     const q = f.id ? supabase.from("von_gop").update(row).eq("id", f.id) : supabase.from("von_gop").insert(row);
     if (await run(q, setErr)) { setF(empty); reload(); }
   }
   async function del(r: Contrib) {
-    if (await huyVon("von_gop", r.id, setErr)) reload();
+    if (await huyVon("von_gop", r.id, setErr, linked.has(r.id))) { reload(); reloadLinks(); }
   }
   return (
     <div className="space-y-4">
@@ -177,6 +245,7 @@ function ContribSection({ rows, huy, reload, error, setupTotal }: { rows: Contri
           <input type="date" className={inp} value={f.contributed_on} onChange={(e) => setF({ ...f, contributed_on: e.target.value })} />
           <input className={inp} placeholder="Ghi chú" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
         </div>
+        {!f.id && <GhiQuyBox v={ghi} setV={setGhi} trung={trungQ} />}
         <Msg error={err || error} />
         <div className="flex gap-2">
           <button onClick={save} className={`${btn} btn-primary`}>{f.id ? "Lưu thay đổi" : "Thêm"}</button>
@@ -194,11 +263,11 @@ function ContribSection({ rows, huy, reload, error, setupTotal }: { rows: Contri
             {rows.map((r) => (
               <li key={r.id} className="py-2 flex gap-2 items-start">
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium">{r.contributor} <span className="text-green-700 text-sm">{total ? ((r.amount / total) * 100).toFixed(1) : 0}%</span></div>
+                  <div className="font-medium">{r.contributor} <span className="text-green-700 text-sm">{total ? ((r.amount / total) * 100).toFixed(1) : 0}%</span>{linked.has(r.id) && <span className="ml-2 badge bg-emerald-100 text-emerald-800">Đã ghi Sổ quỹ</span>}</div>
                   <div className="text-sm text-slate-500">{[fmtDate(r.contributed_on), r.note].filter(Boolean).join(" · ")}</div>
                 </div>
                 <div className="text-right"><div className="font-medium">{money(r.amount)}</div>
-                  <button onClick={() => setF({ id: r.id, contributor: r.contributor, amount: String(r.amount), contributed_on: r.contributed_on, note: r.note ?? "" })} className="bare text-sm text-green-700 px-2 min-h-11">Sửa</button>
+                  {!linked.has(r.id) && <button onClick={() => setF({ id: r.id, contributor: r.contributor, amount: String(r.amount), contributed_on: r.contributed_on, note: r.note ?? "" })} className="bare text-sm text-green-700 px-2 min-h-11">Sửa</button>}
                   <button onClick={() => del(r)} className="bare text-sm text-red-600 px-2 min-h-11">Hủy</button></div>
               </li>
             ))}
@@ -468,6 +537,13 @@ export default function VonPage() {
   const contrib = useRows<Contrib>("von_gop", "contributed_on");
   const ops = useRows<Op>("von_chi_phi_van_hanh", "month");
   const priors = useRows<Prior>("von_loi_nhuan_cu", "month");
+  const [linked, setLinked] = useState<Set<string>>(new Set());
+  const reloadLinks = useCallback(async () => {
+    const r = await supabase.from("von_lien_ket_quy").select("von_id");
+    if (!r.error) setLinked(new Set((r.data as { von_id: string }[]).map((x) => x.von_id)));
+  }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { reloadLinks(); }, [reloadLinks]);
 
   if (role !== "chu") return <EmptyState icon={<Icon name="alert" />} text="Bạn không có quyền xem trang này." />;
   const setupTotal = setup.rows.reduce((s, r) => s + r.amount, 0);
@@ -479,8 +555,8 @@ export default function VonPage() {
           <button key={t} onClick={() => setTab(i)} className={`bare rounded-xl min-h-11 text-sm ${tab === i ? "bg-white font-semibold text-green-800 shadow" : "text-slate-600"}`}>{t}</button>
         ))}
       </div>
-      {tab === 0 && <SetupSection rows={setup.rows} huy={setup.huy} reload={setup.reload} error={setup.error} />}
-      {tab === 1 && <ContribSection rows={contrib.rows} huy={contrib.huy} reload={contrib.reload} error={contrib.error} setupTotal={setupTotal} />}
+      {tab === 0 && <SetupSection rows={setup.rows} huy={setup.huy} reload={setup.reload} error={setup.error} linked={linked} reloadLinks={reloadLinks} />}
+      {tab === 1 && <ContribSection rows={contrib.rows} huy={contrib.huy} reload={contrib.reload} error={contrib.error} setupTotal={setupTotal} linked={linked} reloadLinks={reloadLinks} />}
       {tab === 2 && <OpSection rows={ops.rows} huy={ops.huy} reload={ops.reload} error={ops.error} />}
       {tab === 3 && <ReportSection setup={setup.rows} contribs={contrib.rows} ops={ops.rows} priors={priors.rows} priorsHuy={priors.huy} reloadPriors={priors.reload} priorError={priors.error} />}
     </div>
