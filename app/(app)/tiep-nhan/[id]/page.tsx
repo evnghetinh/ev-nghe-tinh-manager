@@ -9,6 +9,7 @@ import { StatusBadge, Toast } from "@/components/ui";
 import Photos from "./photos";
 import PartPicker from "./part-picker";
 import Costs from "./costs";
+import Tach from "./tach";
 import EvInfo from "./ev";
 import GiamVat, { toTot, vatText, giamText, type Tot, type GvCfg, type Kieu } from "./giam-vat";
 
@@ -414,6 +415,8 @@ export default function QuotePage() {
       )}
 
       {role === "chu" && <Costs orderId={id} revenue={tot?.doanh_thu ?? 0} partsCost={partsCost} cancelled={cancelled} huyLuc={order?.huy_luc ?? null} />}
+
+      {role === "chu" && done && !cancelled && <Tach orderId={id} reloadKey={`${tot?.doanh_thu ?? 0}|${partsCost}|${items.length}`} />}
 
       {order && <EvInfo key={String(done)} orderId={id} done={done} />}
 

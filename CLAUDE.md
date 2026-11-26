@@ -2,6 +2,10 @@
 
 Luôn tuân theo mọi lần làm việc.
 
+## 0. Đọc file này trước
+- Trước khi sửa code hoặc viết SQL: đọc `TONG-QUAN-DU-AN.md` (thư mục, bảng, hàm, thứ tự file SQL, quy tắc ghi sổ tiền, chỗ dùng hàm tính tổng phiếu).
+- Thêm bảng / hàm / file SQL mới thì cập nhật luôn `TONG-QUAN-DU-AN.md`.
+
 ## 1. Ngôn ngữ
 - Giao diện và thông báo toàn bộ bằng tiếng Việt.
 - Tên gara: **EV Nghệ Tĩnh Auto**.

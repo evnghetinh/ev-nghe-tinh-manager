@@ -26,6 +26,8 @@ export default function Dashboard() {
   const [months, setMonths] = useState<Month[]>([]);
   const [kho, setKho] = useState<{ von: number; ban: number; con: number; thieu: number } | null>(null);
   const [no, setNo] = useState<{ tong: number; khach: number } | null>(null);
+  // Tách công / phụ tùng tháng này (giai đoạn 33). null = chưa chạy file SQL
+  const [tach, setTach] = useState<{ cong: number; pt: number; ln_pt: number; phan_cong: number } | null>(null);
 
   useEffect(() => {
     if (role !== "chu") return;
@@ -65,6 +67,9 @@ export default function Dashboard() {
       const tk = await supabase.rpc("tong_gia_tri_ton");
       const k = (tk.data as { tong_von: number; tong_ban: number; so_con_hang: number; so_thieu_gia: number }[] | null)?.[0];
       setKho(k ? { von: Number(k.tong_von), ban: Number(k.tong_ban), con: Number(k.so_con_hang), thieu: Number(k.so_thieu_gia) } : null);
+      const tc = await supabase.rpc("bao_cao_tach", { p_tu: first, p_den: today, p_nhom: "thang" });
+      const tr = (tc.data as { dt_cong: number; dt_pt: number; ln_pt: number; phan_cong: number }[] | null) ?? null;
+      setTach(tc.error || !tr ? null : tr.reduce((a, x) => ({ cong: a.cong + Number(x.dt_cong), pt: a.pt + Number(x.dt_pt), ln_pt: a.ln_pt + Number(x.ln_pt), phan_cong: a.phan_cong + Number(x.phan_cong) }), { cong: 0, pt: 0, ln_pt: 0, phan_cong: 0 }));
       setOpen(o.count ?? 0);
       setBd([day, mon]);
       setLow(((pt.data ?? []) as Low[]).filter((x) => Number(x.stock) <= Number(x.min_stock)));
@@ -84,6 +89,10 @@ export default function Dashboard() {
     { label: "Giảm giá trong tháng", value: money(bd[1].giam), icon: "money", tone: "bg-rose-100 text-rose-700", loss: false, sub: "Tổng tiền đã giảm cho khách" },
     { label: "Lợi nhuận hôm nay", value: money(profitOf(bd[0])), loss: profitOf(bd[0]) < 0, icon: "trend", tone: "bg-emerald-100 text-emerald-700" },
     { label: "Lợi nhuận tháng này", value: money(profitOf(bd[1])), loss: profitOf(bd[1]) < 0, icon: "trend", tone: "bg-teal-100 text-teal-700" },
+    { label: "Doanh thu công tháng này", value: tach ? money(tach.cong) : "—", href: "/chia-tien", icon: "wrench", tone: "bg-sky-100 text-sky-700", loss: false,
+      sub: tach ? `Sau chi phí phiếu còn ${money(tach.phan_cong)} · chia cho thợ cuối tháng` : "Cần chạy giai-doan-33.sql" },
+    { label: "Doanh thu phụ tùng tháng này", value: tach ? money(tach.pt) : "—", href: "/chia-tien", icon: "box", tone: "bg-amber-100 text-amber-700", loss: false,
+      sub: tach ? `Lợi nhuận phụ tùng ${money(tach.ln_pt)} · của chủ, không chia` : "Cần chạy giai-doan-33.sql" },
   ];
   return (
     <div className="space-y-4">

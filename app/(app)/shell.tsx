@@ -17,6 +17,7 @@ const menu = [
   { href: "/nhap-hang", label: "Nhập hàng", icon: "truck", ownerOnly: true },
   { href: "/so-quy", label: "Sổ quỹ", icon: "money", ownerOnly: true },
   { href: "/von", label: "Vốn", icon: "wallet", ownerOnly: true },
+  { href: "/chia-tien", label: "Chia tiền", icon: "users", ownerOnly: true },
   { href: "/nhat-ky", label: "Nhật ký", icon: "history", ownerOnly: true },
   { href: "/cai-dat", label: "Cài đặt", icon: "cog", ownerOnly: true },
 ];
