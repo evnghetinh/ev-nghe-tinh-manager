@@ -13,7 +13,7 @@ const menu = [
   { href: "/khach-hang", label: "Khách hàng", icon: "users" },
   { href: "/xe", label: "Xe", icon: "car" },
   { href: "/phu-tung", label: "Phụ tùng", icon: "box" },
-  { href: "/cong-no", label: "Công nợ khách", icon: "receipt" },
+  { href: "/cong-no", label: "Công nợ khách", icon: "receipt", ownerOnly: true },
   { href: "/nhap-hang", label: "Nhập hàng", icon: "truck", ownerOnly: true },
   { href: "/so-quy", label: "Sổ quỹ", icon: "money", ownerOnly: true },
   { href: "/von", label: "Vốn", icon: "wallet", ownerOnly: true },
@@ -47,9 +47,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return () => sub.subscription.unsubscribe();
   }, [router]);
 
+  // Nhân viên vào thẳng trang chỉ dành cho Chủ → chuyển về Tiếp nhận
+  const chanNv = role === "nhan_vien" && menu.some((m) => m.ownerOnly && (m.href === "/" ? pathname === "/" : pathname === m.href || pathname.startsWith(m.href + "/")));
   useEffect(() => {
-    if (role === "nhan_vien" && pathname === "/") router.replace("/tiep-nhan");
-  }, [role, pathname, router]);
+    if (chanNv) router.replace("/tiep-nhan");
+  }, [chanNv, router]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setMore(false); }, [pathname]);
@@ -60,7 +62,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <button onClick={() => supabase.auth.signOut()} className="btn-secondary">Đăng xuất</button>
     </div>
   );
-  if (!role || (role === "nhan_vien" && pathname === "/")) return <div className="p-6 max-w-md"><LoadingBlock rows={2} /></div>;
+  if (!role || chanNv) return <div className="p-6 max-w-md"><LoadingBlock rows={2} /></div>;
 
   const items = menu.filter((m) => role === "chu" || !m.ownerOnly);
   const active = (href: string) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/"));
@@ -76,19 +78,22 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   );
 
   return (
+    <RoleContext.Provider value={role}>
     <div className="min-h-screen pb-20 md:pb-0 md:flex">
       <aside className="hidden md:flex print:!hidden md:flex-col md:w-64 md:sticky md:top-0 md:h-screen shrink-0 bg-navy-900 text-slate-200 p-4 gap-1">
-        <div className="flex items-center gap-3 px-2 pb-5">
+        <div className="flex items-center gap-3 px-2 pb-5 shrink-0">
           <Logo size={42} />
           <div className="leading-tight"><div className="font-bold text-white">EV Nghệ Tĩnh</div><div className="text-xs tracking-widest text-sky-300">AUTO</div></div>
         </div>
-        {items.map((m) => (
-          <Link key={m.href} href={m.href}
-            className={`flex items-center gap-3 px-3 min-h-11 rounded-xl text-[15px] ${active(m.href) ? "bg-brand-600 text-white font-semibold shadow-lg shadow-sky-900/40" : "text-slate-300 hover:bg-navy-700 hover:text-white"}`}>
-            <Icon name={m.icon} />{m.label}
-          </Link>
-        ))}
-        <button onClick={() => supabase.auth.signOut()} className="bare mt-auto flex items-center gap-3 px-3 min-h-11 rounded-xl text-sm text-slate-400 hover:text-white hover:bg-navy-700">
+        <nav className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-1 -mx-1 px-1 py-1 [scrollbar-width:thin] [scrollbar-color:#334155_transparent]">
+          {items.map((m) => (
+            <Link key={m.href} href={m.href}
+              className={`flex items-center gap-3 px-3 min-h-11 shrink-0 rounded-xl text-[15px] ${active(m.href) ? "bg-brand-600 text-white font-semibold shadow-lg shadow-sky-900/40" : "text-slate-300 hover:bg-navy-700 hover:text-white"}`}>
+              <Icon name={m.icon} />{m.label}
+            </Link>
+          ))}
+        </nav>
+        <button onClick={() => supabase.auth.signOut()} className="bare shrink-0 mt-1 flex items-center gap-3 px-3 min-h-11 rounded-xl text-sm text-slate-400 hover:text-white hover:bg-navy-700">
           <Icon name="logout" />Đăng xuất
         </button>
       </aside>
@@ -105,7 +110,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <span className="w-10 h-10 rounded-full bg-navy-800 text-white font-bold flex items-center justify-center uppercase">{name[0]}</span>
           </div>
         </header>
-        <main className="flex-1 p-4 md:p-6 max-w-5xl w-full print:p-0 print:max-w-none"><RoleContext.Provider value={role}>{children}</RoleContext.Provider></main>
+        <main className="flex-1 p-4 md:p-6 max-w-5xl w-full print:p-0 print:max-w-none">{children}</main>
       </div>
 
       <nav className="md:hidden print:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-slate-200 flex items-stretch shadow-[0_-4px_16px_rgba(10,27,51,0.08)]" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
@@ -128,5 +133,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
     </div>
+    </RoleContext.Provider>
   );
 }

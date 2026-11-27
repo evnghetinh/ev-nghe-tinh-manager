@@ -5,6 +5,7 @@ import { EmptyState, Icon, LoadingBlock, PageTitle, Toast } from "@/components/u
 import { supabase } from "@/lib/supabase";
 import { ChonHangDong, useGoiYXe } from "@/components/xe-chon";
 import { money, namMauXe, tenXe } from "@/lib/format";
+import { useRole } from "@/lib/role";
 
 type Vehicle = { id: string; customer_id: string; plate: string; vin: string | null; vehicle_type: string; model: string | null; hang_xe: string | null; dong_xe: string | null; nam_san_xuat: number | null; mau_xe: string | null; customers: { name: string; phone: string | null } | null; no: number };
 type Flat = Omit<Vehicle, "customers" | "no"> & { ten_khach: string; sdt_khach: string | null; no_khach: number };
@@ -15,6 +16,7 @@ const SAP_XEP = [{ v: "moi", t: "Mới nhất" }, { v: "ten", t: "Tên chủ xe 
 const empty = { customer_id: "", plate: "", vin: "", vehicle_type: TYPES[0], model: "", hang_xe: "", dong_xe: "", nam: "", mau_xe: "" };
 
 export default function VehiclesPage() {
+  const laChu = useRole() === "chu";
   const [list, setList] = useState<Vehicle[]>([]);
   const [custs, setCusts] = useState<Cust[]>([]);
   const [form, setForm] = useState(empty);
@@ -110,7 +112,7 @@ export default function VehiclesPage() {
           <li key={v.id} className="card flex justify-between gap-2">
             <div className="min-w-0">
               <div className="font-semibold text-navy-900">{v.plate} {tenXe(v) && <span>· {tenXe(v)}</span>} <span className="text-sm font-normal text-slate-500">· {v.vehicle_type}{namMauXe(v) ? ` · ${namMauXe(v)}` : ""}{v.model ? ` · ${v.model}` : ""}</span></div>
-              <div className="text-sm text-slate-500 break-words">Chủ xe: <Link href={`/khach-hang/${v.customer_id}`} className="text-brand-700 underline py-2 -my-2 inline-block">{v.customers?.name}</Link>{v.customers?.phone ? ` (${v.customers.phone})` : ""}{v.vin ? ` · Số khung: ${v.vin}` : ""}{v.no > 0 && <span className="font-semibold text-red-700"> · Nợ {money(v.no)}</span>}</div>
+              <div className="text-sm text-slate-500 break-words">Chủ xe: <Link href={`/khach-hang/${v.customer_id}`} className="text-brand-700 underline py-2 -my-2 inline-block">{v.customers?.name}</Link>{v.customers?.phone ? ` (${v.customers.phone})` : ""}{v.vin ? ` · Số khung: ${v.vin}` : ""}{laChu && v.no > 0 && <span className="font-semibold text-red-700"> · Nợ {money(v.no)}</span>}</div>
             </div>
             <div className="flex gap-1 text-sm shrink-0 items-start">
               <button onClick={() => { setEditId(v.id); setForm({ customer_id: v.customer_id, plate: v.plate, vin: v.vin ?? "", vehicle_type: v.vehicle_type, model: v.model ?? "", hang_xe: v.hang_xe ?? "", dong_xe: v.dong_xe ?? "", nam: v.nam_san_xuat ? String(v.nam_san_xuat) : "", mau_xe: v.mau_xe ?? "" }); window.scrollTo(0, 0); }} className="bare text-green-700 px-3 min-h-11">Sửa</button>

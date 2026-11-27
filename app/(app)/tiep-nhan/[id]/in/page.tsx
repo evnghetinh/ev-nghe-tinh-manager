@@ -5,13 +5,14 @@ import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { money, qtyText, tenXe } from "@/lib/format";
 import { GARA } from "@/lib/gara";
+import { useRole } from "@/lib/role";
 import { toTot, vatText, type Tot } from "../giam-vat";
 
 type Item = { id: string; kind: "part" | "labor"; name: string; qty: number; unit_price: number; don_vi: string | null; thanh_tien: number; giam_tien: number; sau_giam: number };
 type Dtc = { ma: string; ghi_chu: string | null; sau_sua: string | null };
 type Kt = { ten: string; ket_qua: "dat" | "khong_dat" | null; ghi_chu: string | null; nguoi_kt_ten: string | null; kt_luc: string | null };
 type Pay = { id: string; loai: string; so_tien: number; hinh_thuc: string; ngay_thu: string; da_huy: boolean };
-type Order = { vat_suat: number; vat_che_do: "chua" | "da"; stock_deducted: boolean; da_huy: boolean; huy_ly_do: string | null; received_at: string | null; soc_nhan: number | null; soh_nhan: number | null; pin_ghi_chu: string | null; nguyen_nhan: string | null; tiep_nhan_ten: string | null; kt_bo_qua_ly_do: string | null; code: number; odometer: number | null; issue: string; created_at: string; vehicles: { plate: string; vin: string | null; vehicle_type: string | null; hang_xe: string | null; dong_xe: string | null; nam_san_xuat: number | null; mau_xe: string | null } | null; customers: { name: string; phone: string | null; address: string | null } | null };
+type Order = { vat_suat: number; vat_che_do: "chua" | "da"; stock_deducted: boolean; da_huy: boolean; tiep_nhan_boi: string | null; huy_ly_do: string | null; received_at: string | null; soc_nhan: number | null; soh_nhan: number | null; pin_ghi_chu: string | null; nguyen_nhan: string | null; tiep_nhan_ten: string | null; kt_bo_qua_ly_do: string | null; code: number; odometer: number | null; issue: string; created_at: string; vehicles: { plate: string; vin: string | null; vehicle_type: string | null; hang_xe: string | null; dong_xe: string | null; nam_san_xuat: number | null; mau_xe: string | null } | null; customers: { name: string; phone: string | null; address: string | null } | null };
 
 export default function PrintQuote() {
   const { id } = useParams<{ id: string }>();
@@ -24,13 +25,16 @@ export default function PrintQuote() {
   const [dtcs, setDtcs] = useState<Dtc[]>([]);
   const [kts, setKts] = useState<Kt[]>([]);
   const [size, setSize] = useState<"A4" | "A5">("A5");
+  const role = useRole();
+  const [uid, setUid] = useState<string | null>(null);
+  useEffect(() => { supabase.auth.getSession().then(({ data }) => setUid(data.session?.user.id ?? null)); }, []);
 
   useEffect(() => {
     let alive = true;
     // Luôn đọc lại dữ liệu mới nhất: mỗi lần mở trang và mỗi lần quay lại tab / trang từ bộ nhớ đệm.
     async function load() {
       // Chỉ lấy giá bán, không đụng tới giá nhập/giá vốn/lợi nhuận/sổ quỹ.
-      const o = await supabase.from("repair_orders").select("vat_suat, vat_che_do, stock_deducted, da_huy, huy_ly_do, received_at, soc_nhan, soh_nhan, pin_ghi_chu, nguyen_nhan, tiep_nhan_ten, kt_bo_qua_ly_do, code, odometer, issue, created_at, vehicles(plate, vin, vehicle_type, hang_xe, dong_xe, nam_san_xuat, mau_xe), customers(name, phone, address)").eq("id", id).single();
+      const o = await supabase.from("repair_orders").select("vat_suat, vat_che_do, stock_deducted, da_huy, tiep_nhan_boi, huy_ly_do, received_at, soc_nhan, soh_nhan, pin_ghi_chu, nguyen_nhan, tiep_nhan_ten, kt_bo_qua_ly_do, code, odometer, issue, created_at, vehicles(plate, vin, vehicle_type, hang_xe, dong_xe, nam_san_xuat, mau_xe), customers(name, phone, address)").eq("id", id).single();
       const i = await supabase.rpc("dong_bao_gia", { p_order: id });
       const [t, d, k, pm, tt] = await Promise.all([
         supabase.from("ev_phieu_ky_thuat_vien").select("ev_ky_thuat_vien(ten)").eq("order_id", id),
@@ -102,6 +106,14 @@ export default function PrintQuote() {
   ] : [];
   const info = all.filter(([, v]) => v != null && String(v).trim() !== "") as [string, string][];
   const lastKt = kts.filter((k) => k.kt_luc).sort((a, b) => (a.kt_luc! < b.kt_luc! ? 1 : -1))[0];
+
+  // Nhân viên (KTV): chỉ in phiếu do chính mình mở, chưa hoàn thành, chưa hủy
+  if (role !== "chu" && order && (order.stock_deducted || order.da_huy || order.tiep_nhan_boi !== uid)) return (
+    <div className="space-y-3 max-w-md">
+      <p className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-amber-900">Chỉ Chủ xưởng (hoặc người mở phiếu khi phiếu chưa hoàn thành) được xem và in báo giá có số tiền.</p>
+      <Link href={`/tiep-nhan/${id}`} className="btn btn-secondary text-sm">← Quay lại phiếu</Link>
+    </div>
+  );
 
   return (
     <div>

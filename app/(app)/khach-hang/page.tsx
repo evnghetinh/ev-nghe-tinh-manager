@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { EmptyState, Icon, LoadingBlock, PageTitle, Toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { money } from "@/lib/format";
+import { useRole } from "@/lib/role";
 
 type Customer = { id: string; name: string; phone: string | null; address: string | null; note: string | null; so_xe: number; no: number };
 const empty = { name: "", phone: "", address: "", note: "" };
@@ -12,6 +13,7 @@ const TRANG = 20;
 const SAP_XEP = [{ v: "moi", t: "Mới nhất" }, { v: "ten", t: "Tên A-Z" }, { v: "no", t: "Nợ nhiều nhất" }];
 
 export default function CustomersPage() {
+  const laChu = useRole() === "chu";
   const them = useSearchParams().get("them");
   const [list, setList] = useState<Customer[]>([]);
   const [form, setForm] = useState(() => {
@@ -94,7 +96,7 @@ export default function CustomersPage() {
             <div className="min-w-0">
               <Link href={`/khach-hang/${c.id}`} className="block font-semibold text-navy-900 break-words py-2 -my-2 underline-offset-2 hover:underline">{c.name}</Link>
               <div className="text-sm text-slate-500 break-words">{[c.phone, c.address, c.note].filter(Boolean).join(" · ")}</div>
-              <div className="text-sm text-slate-500">{c.so_xe} xe{c.no > 0 && <span className="font-semibold text-red-700"> · Nợ {money(c.no)}</span>}</div>
+              <div className="text-sm text-slate-500">{c.so_xe} xe{laChu && c.no > 0 && <span className="font-semibold text-red-700"> · Nợ {money(c.no)}</span>}</div>
             </div>
             <div className="flex gap-1 text-sm shrink-0 items-start">
               <button onClick={() => { setEditId(c.id); setForm({ name: c.name, phone: c.phone ?? "", address: c.address ?? "", note: c.note ?? "" }); window.scrollTo(0, 0); }} className="bare text-green-700 px-3 min-h-11">Sửa</button>

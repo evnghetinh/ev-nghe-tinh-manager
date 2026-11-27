@@ -26,7 +26,7 @@ type Past = { id: string; code: number; received_at: string; odometer: number | 
 type Log = { id: string; action: "them" | "xoa" | "tra"; ghi_chu: string | null; kind: "part" | "labor"; item_name: string; qty: number; unit_price: number; total_before: number; total_after: number; created_by_name: string | null; created_at: string };
 type Pay = { id: string; ref_id: string | null; loai: "thu" | "dieu_chinh" | "dao"; so_tien: number; hinh_thuc: string; ngay_thu: string; ghi_chu: string | null; da_huy: boolean; huy_ly_do: string | null; huy_boi_ten: string | null; huy_luc: string | null; created_by_name: string | null; created_at: string };
 const LOAI_THU: Record<string, string> = { thu: "Khoản thu", dieu_chinh: "Điều chỉnh", dao: "Dòng đảo do hủy phiếu" };
-type Order = { giam_kieu: Kieu; giam_gia_tri: number; giam_ly_do: string | null; vat_suat: number; vat_che_do: "chua" | "da"; code: number; issue: string; status: string; payment_method: string | null; paid_at: string | null; stock_deducted: boolean; da_huy: boolean; huy_ly_do: string | null; huy_boi_ten: string | null; huy_luc: string | null; odometer: number | null; vehicles: { plate: string; hang_xe: string | null; dong_xe: string | null; nam_san_xuat: number | null; mau_xe: string | null } | null; customers: { name: string; phone: string | null; address: string | null } | null };
+type Order = { giam_kieu: Kieu; giam_gia_tri: number; giam_ly_do: string | null; vat_suat: number; vat_che_do: "chua" | "da"; code: number; issue: string; status: string; payment_method: string | null; paid_at: string | null; stock_deducted: boolean; da_huy: boolean; tiep_nhan_boi: string | null; huy_ly_do: string | null; huy_boi_ten: string | null; huy_luc: string | null; odometer: number | null; vehicles: { plate: string; hang_xe: string | null; dong_xe: string | null; nam_san_xuat: number | null; mau_xe: string | null } | null; customers: { name: string; phone: string | null; address: string | null } | null };
 
 export default function QuotePage() {
   const { id } = useParams<{ id: string }>();
@@ -53,9 +53,11 @@ export default function QuotePage() {
   const [tot, setTot] = useState<Tot | null>(null);
   const [cfg, setCfg] = useState<GvCfg | null>(null);
   const [gvLogs, setGvLogs] = useState<GvLog[]>([]);
+  const [uid, setUid] = useState<string | null>(null);
+  useEffect(() => { supabase.auth.getSession().then(({ data }) => setUid(data.session?.user.id ?? null)); }, []);
 
   const load = useCallback(async () => {
-    const o = await supabase.from("repair_orders").select("giam_kieu, giam_gia_tri, giam_ly_do, vat_suat, vat_che_do, code, issue, status, payment_method, paid_at, stock_deducted, da_huy, huy_ly_do, huy_boi_ten, huy_luc, odometer, vehicles(plate, hang_xe, dong_xe, nam_san_xuat, mau_xe), customers(name, phone, address)").eq("id", id).single();
+    const o = await supabase.from("repair_orders").select("giam_kieu, giam_gia_tri, giam_ly_do, vat_suat, vat_che_do, code, issue, status, payment_method, paid_at, stock_deducted, da_huy, tiep_nhan_boi, huy_ly_do, huy_boi_ten, huy_luc, odometer, vehicles(plate, hang_xe, dong_xe, nam_san_xuat, mau_xe), customers(name, phone, address)").eq("id", id).single();
     const i = await supabase.rpc("dong_bao_gia", { p_order: id });
     const p = await supabase.from("parts").select(COT_PHU_TUNG).eq("is_hidden", false).order("name");
     if (o.error) setError(o.error.message + " (đã chạy giai-doan-31.sql chưa?)"); else { const d = o.data as unknown as Order; setOrder({ ...d, giam_gia_tri: Number(d.giam_gia_tri), vat_suat: Number(d.vat_suat) }); }
@@ -212,7 +214,12 @@ export default function QuotePage() {
   const laborTotal = sum("labor");
   const done = !!order?.stock_deducted;
   const cancelled = !!order?.da_huy;
-  const canEdit = !cancelled && (!done || (role === "chu" && editing));
+  // Nhân viên (KTV) chỉ thấy tiền và thêm/sửa dòng ở phiếu do CHÍNH mình mở, chưa hoàn thành, chưa hủy.
+  // Phiếu của KTV khác, của Chủ, phiếu cũ không rõ người mở: chỉ xem nội dung, không thấy tiền.
+  const cuaToi = !!order && !!uid && order.tiep_nhan_boi === uid;
+  const nvDuocLam = role === "chu" || cuaToi;
+  const canEdit = !cancelled && nvDuocLam && (!done || (role === "chu" && editing));
+  const anTien = role !== "chu" && (done || cancelled || !cuaToi);
   const thuRong = pays.filter((p) => !p.da_huy).reduce((s, p) => s + p.so_tien, 0);
   const tong = tot?.tong_thanh_toan ?? 0; // tổng thanh toán (đã gồm VAT) do máy chủ tính - dùng cho công nợ và khoản thu
   const conNo = cancelled ? 0 : Math.max(0, Math.round(tong - thuRong));
@@ -226,7 +233,7 @@ export default function QuotePage() {
     <div className="space-y-4">
       <div className="flex justify-between items-center gap-2">
         <Link href="/tiep-nhan" className="text-sm font-medium text-brand-700 inline-flex items-center min-h-11">← Quay lại danh sách phiếu</Link>
-        <Link href={`/tiep-nhan/${id}/in`} className="btn btn-primary text-sm">In báo giá</Link>
+        {!anTien && <Link href={`/tiep-nhan/${id}/in`} className="btn btn-primary text-sm">In báo giá</Link>}
       </div>
       {order && (
         <div className="card border-l-4 border-brand-500">
@@ -273,12 +280,12 @@ export default function QuotePage() {
           <div className="flex justify-between gap-2 items-center">
             <div>
               <div className="font-medium">{it.name} <span className="text-xs text-slate-500">({it.kind === "part" ? "Phụ tùng" : "Tiền công"})</span></div>
-              <div className="text-sm text-slate-500">{qtyText(it.qty)}{it.kind === "part" && it.don_vi ? ` ${it.don_vi}` : ""} × {money(it.unit_price)}{it.kind === "part" && it.don_vi ? `/${it.don_vi}` : ""}</div>
-              {it.giam_tien > 0 && <div className="text-sm text-rose-700">Giảm {giamText(it.giam_kieu, it.giam_gia_tri)}: −{money(it.giam_tien)}</div>}
+              <div className="text-sm text-slate-500">{it.kind === "labor" && anTien ? "" : `${qtyText(it.qty)}${it.kind === "part" && it.don_vi ? ` ${it.don_vi}` : ""}`}{anTien ? "" : ` × ${money(it.unit_price)}${it.kind === "part" && it.don_vi ? `/${it.don_vi}` : ""}`}</div>
+              {!anTien && it.giam_tien > 0 && <div className="text-sm text-rose-700">Giảm {giamText(it.giam_kieu, it.giam_gia_tri)}: −{money(it.giam_tien)}</div>}
             </div>
             <div className="text-right shrink-0">
-              {it.giam_tien > 0 && <div className="text-xs text-slate-400 line-through">{money(it.thanh_tien)}</div>}
-              <div className="font-medium">{money(it.sau_giam)}</div>
+              {!anTien && it.giam_tien > 0 && <div className="text-xs text-slate-400 line-through">{money(it.thanh_tien)}</div>}
+              {!anTien && <div className="font-medium">{money(it.sau_giam)}</div>}
               {canEdit && <button disabled={busy} onClick={() => remove(it)} className="text-red-600 text-sm">Xóa</button>}
               {done && role === "chu" && it.kind === "part" && <button disabled={busy} onClick={() => setRet(ret?.id === it.id ? null : { id: it.id, qty: "1", reason: "" })} className="text-amber-700 text-sm ml-3">Khách trả</button>}
             </div>
@@ -302,7 +309,7 @@ export default function QuotePage() {
           onError={setError} onSaved={(d) => { if (d.doi) report(d); else setNotice("Không có gì thay đổi."); load(); }} />
       )}
 
-      <div className="rounded-2xl p-4 space-y-1 text-white" style={{ background: "linear-gradient(135deg,#0f2747,#0866b8)" }}>
+      {!anTien && <div className="rounded-2xl p-4 space-y-1 text-white" style={{ background: "linear-gradient(135deg,#0f2747,#0866b8)" }}>
         <div className="flex justify-between"><span>Tạm tính</span><span>{money(tot?.tam_tinh ?? partsTotal + laborTotal)}</span></div>
         <div className="text-sm text-white/80 pl-3">Phụ tùng {money(partsTotal)} · Tiền công {money(laborTotal)}</div>
         <div className="flex justify-between text-sm"><span>Giảm giá{tot && tot.giam_dong > 0 && tot.giam_phieu > 0 ? " (dòng + toàn phiếu)" : ""}</span><span>−{money(tot?.giam_gia ?? 0)}</span></div>
@@ -311,11 +318,11 @@ export default function QuotePage() {
         <div className="flex justify-between text-xl font-bold border-t border-white/30 pt-2 mt-1"><span>Tổng thanh toán</span><span>{money(tong)}</span></div>
         <div className="flex justify-between text-sm"><span>Đã thu</span><span>{money(thuRong)}</span></div>
         <div className="flex justify-between text-sm font-semibold"><span>{conThieu < 0 ? "Thu dư (cần hoàn khách)" : "Còn nợ"}</span><span>{money(conThieu < 0 ? -conThieu : conNo)}</span></div>
-      </div>
+      </div>}
 
       {cancelled ? null : done ? (
         <div className="bg-slate-100 rounded-xl p-4 text-sm space-y-3">
-          <div>Đã hoàn thành ngày {order?.paid_at?.split("-").reverse().join("/")}. Kho đã được trừ.{conNo > 0 ? ` Khách còn nợ ${money(conNo)}.` : ""}</div>
+          <div>Đã hoàn thành ngày {order?.paid_at?.split("-").reverse().join("/")}. Kho đã được trừ.{conNo > 0 && !anTien ? ` Khách còn nợ ${money(conNo)}.` : ""}</div>
           {role === "chu" ? (
             editing ? (
               <div className="space-y-2">
@@ -327,6 +334,8 @@ export default function QuotePage() {
             )
           ) : <p className="text-slate-500">Chỉ Chủ xưởng được sửa phiếu đã hoàn thành.</p>}
         </div>
+      ) : !nvDuocLam ? (
+        <p className="bg-slate-100 rounded-xl p-4 text-sm text-slate-600">Phiếu này do người khác mở. Bạn chỉ xem được nội dung công việc, thông tin xe và khách.</p>
       ) : (
         <div className="card grid gap-3 sm:grid-cols-[1fr_auto] items-center">
           <label className="text-sm flex items-center gap-2">Ngày hoàn thành
@@ -340,7 +349,7 @@ export default function QuotePage() {
         <div className="flex justify-end"><button disabled={busy} onClick={cancelOrder} className="btn bg-red-600 text-white px-4 disabled:opacity-50">Hủy phiếu</button></div>
       )}
 
-      {(items.length > 0 || pays.length > 0) && (
+      {!anTien && (items.length > 0 || pays.length > 0) && (
         <section className="card space-y-3">
           <h2 className="font-bold">Thanh toán</h2>
           <div className="grid grid-cols-3 gap-2 text-sm text-center">

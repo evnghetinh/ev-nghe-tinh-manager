@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { money, tonText } from "@/lib/format";
+import { useRole } from "@/lib/role";
 import { tenXe } from "@/lib/format";
 import { Icon, StatusBadge } from "@/components/ui";
 
@@ -18,6 +19,7 @@ const fmtNgay = (s: string | null) => (s ? s.slice(0, 10).split("-").reverse().j
 
 /** Ô tìm kiếm trên cùng: gõ từ 2 ký tự, chờ 250ms rồi tìm; kết quả nhóm theo loại. */
 export function TimKiem() {
+  const laChu = useRole() === "chu";
   const router = useRouter();
   const pathname = usePathname();
   const [q, setQ] = useState("");
@@ -123,7 +125,7 @@ export function TimKiem() {
                     <span className="block font-semibold text-navy-900 break-words">{k.name}</span>
                     <span className="block text-sm text-slate-500 break-words">{[k.phone, k.xe].filter(Boolean).join(" · ") || "—"}</span>
                   </span>
-                  <span className={`text-sm shrink-0 text-right ${k.no > 0 ? "font-semibold text-red-700" : "text-slate-400"}`}>{k.no > 0 ? `Nợ ${money(Number(k.no))}` : "Không nợ"}</span>
+                  {laChu && <span className={`text-sm shrink-0 text-right ${k.no > 0 ? "font-semibold text-red-700" : "text-slate-400"}`}>{k.no > 0 ? `Nợ ${money(Number(k.no))}` : "Không nợ"}</span>}
                 </>
               )))}
               {kq.xe.length > 0 && tieuDe("Xe")}

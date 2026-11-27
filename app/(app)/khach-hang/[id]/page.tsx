@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { EmptyState, Icon, LoadingBlock, PageTitle, StatusBadge, Toast } from "@/components/ui";
 import { supabase } from "@/lib/supabase";
 import { money, namMauXe, tenXe } from "@/lib/format";
+import { useRole } from "@/lib/role";
 
 type Xe = { id: string; plate: string; hang_xe: string | null; dong_xe: string | null; vehicle_type: string | null; nam_san_xuat: number | null; mau_xe: string | null; model: string | null; vin: string | null };
 type Phieu = { id: string; code: number; plate: string; status: string; ngay: string | null; tong: number | null; da_thu: number | null; con_no: number };
@@ -19,6 +20,7 @@ const fmtNgay = (s: string | null) => (s ? s.slice(0, 10).split("-").reverse().j
 const soZalo = (p: string) => { const d = p.replace(/\D/g, ""); return d.startsWith("0") ? "84" + d.slice(1) : d; };
 
 export default function HoSoKhach() {
+  const laChu = useRole() === "chu";
   const { id } = useParams<{ id: string }>();
   const [hs, setHs] = useState<HoSo | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -61,7 +63,7 @@ export default function HoSoKhach() {
           {k.address && <div>Địa chỉ: {k.address}</div>}
           {k.note && <div>Ghi chú: {k.note}</div>}
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        {laChu && <div className="grid grid-cols-2 gap-2">
           <div className="rounded-xl bg-slate-100 p-3">
             <div className="text-xs text-slate-500">Công nợ</div>
             <div className={`text-lg font-bold ${hs.cong_no > 0 ? "text-red-700" : "text-navy-900"}`}>{money(hs.cong_no)}</div>
@@ -72,7 +74,7 @@ export default function HoSoKhach() {
               <div className="text-lg font-bold text-navy-900">{money(hs.tong_da_chi)}</div>
             </div>
           )}
-        </div>
+        </div>}
         <div className="grid gap-2 sm:grid-cols-3">
           {sdt ? <a href={`tel:${sdt}`} className="btn btn-secondary">Gọi</a> : <span className="btn btn-secondary opacity-50" aria-disabled>Gọi</span>}
           {sdt ? <a href={`https://zalo.me/${soZalo(sdt)}`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">Zalo</a> : <span className="btn btn-secondary opacity-50" aria-disabled>Zalo</span>}
@@ -103,8 +105,8 @@ export default function HoSoKhach() {
               <Link href={`/tiep-nhan/${p.id}`} className="card flex justify-between gap-3 items-start min-h-11">
                 <div className="min-w-0">
                   <div className="font-semibold text-navy-900">{maPhieu(p.code)} · {p.plate}</div>
-                  <div className="text-sm text-slate-500">{fmtNgay(p.ngay)}{p.tong != null ? ` · ${money(p.tong)}` : ""}</div>
-                  {p.con_no > 0 && <div className="text-sm font-semibold text-red-700">Còn nợ {money(p.con_no)}</div>}
+                  <div className="text-sm text-slate-500">{fmtNgay(p.ngay)}{laChu && p.tong != null ? ` · ${money(p.tong)}` : ""}</div>
+                  {laChu && p.con_no > 0 && <div className="text-sm font-semibold text-red-700">Còn nợ {money(p.con_no)}</div>}
                 </div>
                 <StatusBadge status={p.status} />
               </Link>

@@ -57,7 +57,10 @@ const ma = (n: number) => "PT" + String(n).padStart(4, "0");
 const fmtTime = (s: string) => new Date(s).toLocaleString("vi-VN");
 const today = () => new Date().toLocaleDateString("sv-SE");
 
-function cell(r: Row, k: ColKey): string {
+// Nhân viên (KTV): phiếu đã hoàn thành / đã hủy thì không xem số tiền
+const anTienCot: ColKey[] = ["tong", "da_thu", "con_no"];
+function cell(r: Row, k: ColKey, an = false): string {
+  if (an && anTienCot.includes(k)) return "—";
   switch (k) {
     case "code": return ma(r.code);
     case "received_at": return fmtTime(r.received_at);
@@ -81,6 +84,18 @@ export default function DanhSach({ initialTim, reloadKey, onStatus, onRemove, on
   onStatus: (id: string, status: string) => void; onRemove: (r: Row) => void; onCancel: (r: Row) => void;
 }) {
   const isOwner = useRole() === "chu";
+  // Nhân viên (KTV) chỉ thấy tiền ở phiếu do CHÍNH mình mở, chưa hoàn thành, chưa hủy
+  const [cuaToi, setCuaToi] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (isOwner) return;
+    supabase.auth.getSession().then(async ({ data }) => {
+      const u = data.session?.user.id;
+      if (!u) return;
+      const r = await supabase.from("repair_orders").select("id").eq("tiep_nhan_boi", u).eq("stock_deducted", false).eq("da_huy", false);
+      if (r.data) setCuaToi(new Set(r.data.map((x) => x.id as string)));
+    });
+  }, [isOwner, reloadKey]);
+  const an = (r: Row) => !isOwner && (r.stock_deducted || r.da_huy || !cuaToi.has(r.id));
   const [uid, setUid] = useState("");
   const [mode, setMode] = useState<"bang" | "the" | null>(null);
   const [view, setView] = useState(initialTim ? "all" : "xuong");
@@ -227,7 +242,7 @@ export default function DanhSach({ initialTim, reloadKey, onStatus, onRemove, on
       const r = await supabase.rpc("ds_phieu_tiep_nhan", { ...filterArgs, p_sap_xep: sort.key, p_huong: sort.dir, p_gioi_han: 20000, p_bat_dau: 0, p_nhom_cot: null, p_nhom_gia_tri: null });
       if (r.error) throw new Error(r.error.message);
       const data = (r.data as Row[]).map((x) => ({ ...x, tong: Number(x.tong), da_thu: Number(x.da_thu), con_no: Number(x.con_no), von: x.von == null ? null : Number(x.von), loi_nhuan: x.loi_nhuan == null ? null : Number(x.loi_nhuan), vat: x.vat == null ? null : Number(x.vat), giam_gia: x.giam_gia == null ? null : Number(x.giam_gia) }));
-      const num = (r: Row, k: ColKey) => (k === "tong" || k === "da_thu" || k === "con_no" ? r[k] : k === "von" || k === "loi_nhuan" || k === "vat" || k === "giam_gia" ? (r[k] ?? "") : k === "odometer" ? (r.odometer ?? "") : k === "received_at" ? fmtTime(r.received_at) : k === "code" ? ma(r.code) : String(r[k as keyof Row] ?? ""));
+      const num = (r: Row, k: ColKey) => (k === "tong" || k === "da_thu" || k === "con_no" ? (an(r) ? "" : r[k]) : k === "von" || k === "loi_nhuan" || k === "vat" || k === "giam_gia" ? (r[k] ?? "") : k === "odometer" ? (r.odometer ?? "") : k === "received_at" ? fmtTime(r.received_at) : k === "code" ? ma(r.code) : String(r[k as keyof Row] ?? ""));
       const aoa = [cols.map((c) => c.label), ...data.map((x) => cols.map((c) => num(x, c.key)))];
       const ws = XLSX.utils.aoa_to_sheet(aoa);
       ws["!cols"] = cols.map((c) => ({ wch: c.key === "issue" ? 40 : c.key === "received_at" ? 19 : 14 }));
@@ -251,9 +266,9 @@ export default function DanhSach({ initialTim, reloadKey, onStatus, onRemove, on
         return <button type="button" onClick={() => setWide((x) => ({ ...x, [r.id]: !w }))} title={r.issue}
           className={`bare text-left min-h-11 ${w ? "whitespace-normal min-w-[14rem]" : "truncate max-w-[14rem]"} ${dead}`}>{r.issue}</button>;
       }
-      case "con_no": return <span className={r.con_no > 0.5 && !r.da_huy ? "font-semibold text-orange-600" : "text-slate-400"}>{cell(r, c.key)}</span>;
-      case "loi_nhuan": return <span className={r.loi_nhuan != null && r.loi_nhuan < 0 ? "text-red-700" : ""}>{cell(r, c.key)}</span>;
-      default: return <span className={dead}>{cell(r, c.key) || "—"}</span>;
+      case "con_no": return <span className={r.con_no > 0.5 && !r.da_huy ? "font-semibold text-orange-600" : "text-slate-400"}>{cell(r, c.key, an(r))}</span>;
+      case "loi_nhuan": return <span className={r.loi_nhuan != null && r.loi_nhuan < 0 ? "text-red-700" : ""}>{cell(r, c.key, an(r))}</span>;
+      default: return <span className={dead}>{cell(r, c.key, an(r)) || "—"}</span>;
     }
   }
   const stickyL = (i: number) => (i === 0 ? "sticky left-0 z-[1] w-[6.5rem] min-w-[6.5rem]" : i === 1 ? "sticky left-[6.5rem] z-[1] w-[7.5rem] min-w-[7.5rem] shadow-[2px_0_0_#e5ebf3]" : "");
@@ -280,7 +295,7 @@ export default function DanhSach({ initialTim, reloadKey, onStatus, onRemove, on
               {(STATUS_CHON.includes(r.status) ? STATUS_CHON : [r.status, ...STATUS_CHON]).map((s) => <option key={s}>{s}</option>)}
             </select>))}
         <Link href={`/tiep-nhan/${r.id}`} className="btn btn-secondary text-sm !px-3">Báo giá</Link>
-        {!r.da_huy && !r.stock_deducted && <button onClick={() => onRemove(r)} className="bare text-red-600 text-sm ml-auto px-3 min-h-11">Xóa phiếu nháp</button>}
+        {!r.da_huy && !r.stock_deducted && (isOwner || cuaToi.has(r.id)) && <button onClick={() => onRemove(r)} className="bare text-red-600 text-sm ml-auto px-3 min-h-11">Xóa phiếu nháp</button>}
         {!r.da_huy && isOwner && <button onClick={() => onCancel(r)} className={`bare text-red-700 text-sm px-3 min-h-11 ${r.stock_deducted ? "ml-auto" : ""}`}>Hủy phiếu</button>}
       </div>
     );
@@ -296,9 +311,9 @@ export default function DanhSach({ initialTim, reloadKey, onStatus, onRemove, on
           </div>
           <div className="flex justify-between gap-2 text-sm">
             <span className={`truncate ${dead}`}>{r.khach}</span>
-            <span className={`shrink-0 font-medium ${r.con_no > 0.5 && !r.da_huy ? "text-orange-600" : ""}`}>
+            {!an(r) && <span className={`shrink-0 font-medium ${r.con_no > 0.5 && !r.da_huy ? "text-orange-600" : ""}`}>
               {money(r.tong)}{r.con_no > 0.5 && !r.da_huy ? ` · nợ ${money(r.con_no)}` : ""}
-            </span>
+            </span>}
           </div>
           <div className="hidden md:block space-y-1">
             <div className={`text-sm ${dead}`}>{r.issue}</div>
